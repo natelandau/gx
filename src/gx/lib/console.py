@@ -50,12 +50,12 @@ GX_THEME = Theme(
         "staged": "green",
         "unstaged": "red",
         "untracked": "cyan",
-        "branch_current": "bold green",
-        "branch_marker": "bold green",
-        "branch_target": "dim",
-        "branch_wt": "dim",
-        "branch_label": "dim",
-        "branch_sep": "dim",
+        "branch_current": "bold default",
+        "branch_marker": "bold default",
+        "branch_target": "cyan",
+        "branch_wt": "cyan",
+        "branch_label": "default",
+        "branch_sep": "default",
         "ahead": "green",
         "behind": "red",
         "clean": "green",
@@ -79,6 +79,8 @@ GX_THEME = Theme(
         "debug.message": "cyan",
         "trace.marker": "bright_black",
         "trace.message": "bright_black",
+        "info.marker": "bold default",
+        "info.message": "bold default",
         "warning.marker": "yellow",
         "warning.message": "bold yellow",
         "warning.detail": "yellow",
@@ -174,6 +176,14 @@ def trace(message: str, **kwargs: Any) -> None:
 def dryrun(message: str, **kwargs: Any) -> None:
     """Print a dry-run notice to stdout."""
     console.print(f"[dryrun.marker]\\[DRY RUN][/] [dryrun.message]{escape(message)}[/]", **kwargs)
+
+
+def info(message: str, **kwargs: Any) -> None:
+    """Print info-level output to stdout. Always shown."""
+    style = "info.message" if kwargs.get("style", True) else "info.marker"
+    marker = "[info.marker]✓[/]" if kwargs.get("marker", True) else ""
+    prefix = "  " if kwargs.get("prefix", True) else ""
+    console.print(f"{marker}{prefix}[{style}]{escape(message)}[/]", **kwargs)
 
 
 def warning(message: str, *, detail: bool = False, **kwargs: Any) -> None:
