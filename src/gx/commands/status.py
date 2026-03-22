@@ -465,7 +465,10 @@ def _render_file_panel(
         entries = _parse_porcelain(porcelain_output)
         root = repo_root()
         return _build_file_tree(entries, root.name)
-    return Text("✓  Working tree clean", style="clean")
+    text = Text()
+    text.append("✓", style="info.marker")
+    text.append("  Working tree clean", style="info.message")
+    return text
 
 
 def _print_status_output(
@@ -554,7 +557,10 @@ def status(
         branch_table = _render_branch_status(rows)
 
     if file_panel is None and branch_table is None:
-        console.print(Panel(Text("✓  Everything clean", style="clean"), border_style="dim"))
+        clean_text = Text()
+        clean_text.append("✓", style="info.marker")
+        clean_text.append("  Everything clean", style="info.message")
+        console.print(Panel(clean_text, border_style="dim"))
         return
 
     _print_status_output(file_panel, branch_table)
