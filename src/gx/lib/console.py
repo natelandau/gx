@@ -1,19 +1,19 @@
 """Global console configuration and leveled print helpers.
 
-Provides a shared Rich Console with centralized theme styling and verbosity-aware
-print functions. Commands import helpers instead of using Rich markup directly.
+Provides a shared Rich Console with centralized theme styling, a step() context
+manager for spinner-based output, and verbosity-aware print functions.
 
 Usage in commands:
     from gx.lib.console import console, step, debug, trace, dryrun, warning, error
 
-    with step("Pushing to origin/main..."):   # Spinner, then checkmark/X
-        do_work()
-    debug("Resolved remote: origin")          # Shown with -v (cyan)
-    trace("push origin main")                 # Shown with -vv, prefixed 'git>' (dim)
-    dryrun("git push origin main")            # Always shown, bold cyan, '[DRY RUN]' prefix
-    warning("Branch has no upstream")         # Always shown on stderr (yellow)
-    error("Failed to push")                   # Always shown on stderr (bold red)
-    console.print(table)                      # Direct Rich output (tables, panels, etc.)
+    with step("Fetch from origin"):          # Spinner → ✓/✗ marker (always shown)
+        git("fetch", remote).raise_on_error()
+    debug("Resolved remote: origin")         # Shown with -v (cyan, > prefix)
+    trace("push origin main")               # Shown with -vv (bright_black, git> prefix)
+    dryrun("git push origin main")           # Always shown, bold cyan, [DRY RUN] prefix
+    warning("Branch has no upstream")        # Always shown on stderr (yellow, ! prefix)
+    error("Failed to push")                  # Always shown on stderr (bold red, ✗ prefix)
+    console.print(table)                     # Direct Rich output (tables, panels, etc.)
 """
 
 from __future__ import annotations
@@ -144,11 +144,6 @@ def step(message: str) -> Generator[Step]:
     finally:
         for sub_text in s._subs:  # noqa: SLF001
             console.print(f"  [sub.pipe]│[/] {escape(sub_text)}")
-
-
-def info(message: str, **kwargs: Any) -> None:
-    """Print info-level output to stdout. Deprecated: use step() instead."""
-    console.print(f"[step.success]✓[/] [step.message]{escape(message)}[/]", **kwargs)
 
 
 def debug(message: str, **kwargs: Any) -> None:

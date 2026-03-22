@@ -21,7 +21,7 @@ from gx.lib.branch import (
     stash_counts,
     tracking_remote_ref,
 )
-from gx.lib.console import console, error, info
+from gx.lib.console import console, error
 from gx.lib.git import check_git_repo, git, repo_root
 from gx.lib.worktree import list_worktrees
 
@@ -559,7 +559,7 @@ def status(
         branch_table = _render_branch_status(rows)
 
     if file_tree is None and not show_clean_tree and branch_table is None:
-        info("Everything clean")
+        console.print("✓ Everything clean", style="clean")
         return
 
     _print_status_output(file_tree, show_clean_tree, branch_table)
