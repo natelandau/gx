@@ -159,3 +159,15 @@ def mock_log_git(mocker):
 def mock_log_check_git_repo(mocker):
     """Patch check_git_repo() at the log command's usage site as a no-op."""
     return mocker.patch("gx.commands.log.check_git_repo", autospec=True)
+
+
+@pytest.fixture
+def mock_info_git(mocker):
+    """Patch git() at the info command's usage site."""
+    return mocker.patch("gx.commands.info.git", autospec=True)
+
+
+@pytest.fixture
+def mock_info_check_git_repo(mocker):
+    """Patch check_git_repo() at the info command's usage site as a no-op."""
+    return mocker.patch("gx.commands.info.check_git_repo", autospec=True)

@@ -6,7 +6,7 @@ import typer
 from typer import rich_utils
 
 from gx import __version__
-from gx.commands import clean, done, feat, log, pull, push, status
+from gx.commands import clean, done, feat, info, log, pull, push, status
 from gx.lib.console import set_verbosity
 from gx.lib.git import check_git_installed, git
 from gx.lib.options import VERBOSE_OPTION
@@ -23,6 +23,7 @@ app.add_typer(clean.app, name="clean")
 app.add_typer(done.app, name="done")
 app.add_typer(status.app, name="status")
 app.add_typer(log.app, name="log")
+app.add_typer(info.app, name="info")
 
 
 def _version_callback(value: bool) -> None:  # noqa: FBT001
@@ -66,7 +67,7 @@ def callback(
       Pull latest changes:        gx pull
       Clean stale branches:       gx clean
       Finish a merged PR:         gx done
-      View status dashboard:      gx status
+      View repo dashboard:        gx info
 
     Configure defaults in ~/.config/gx/config.toml
     """
@@ -74,9 +75,9 @@ def callback(
     check_git_installed()
     if ctx.invoked_subcommand is None:
         if _is_git_repo():
-            status_cmd = getattr(ctx.command, "commands", {}).get("status")
-            if status_cmd:
-                ctx.invoke(status_cmd)
+            info_cmd = getattr(ctx.command, "commands", {}).get("info")
+            if info_cmd:
+                ctx.invoke(info_cmd)
         else:
             typer.echo(ctx.get_help())
 
