@@ -8,12 +8,15 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import typer
+from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from gx.lib.display import kv_grid
-from gx.lib.git import git, repo_root
+from gx.lib.branch import collect_branch_data, count_file_statuses, stash_counts
+from gx.lib.console import console
+from gx.lib.display import kv_grid, render_branch_panel, render_working_tree_panel
+from gx.lib.git import check_git_repo, git, repo_root
 from gx.lib.github import gh, gh_available, is_github_remote
 from gx.lib.worktree import list_worktrees
 
@@ -429,3 +432,116 @@ def _worktree_panel(root: Path) -> Panel | None:
         grid.add_row(branch, rel_path)
 
     return Panel(grid, title="Worktrees", border_style="dim")
+
+
+def _compose_dashboard(panels: dict[str, Panel | None]) -> None:
+    """Arrange named panels in a responsive grid and print to the console.
+
+    Use a wide two/three-column grid layout when the terminal is at least
+    WIDE_THRESHOLD characters wide, otherwise stack all panels vertically.
+
+    Args:
+        panels: Mapping of panel names to Rich Panel objects or None. None entries
+            are excluded from the output.
+    """
+    width = console.width
+    wide = width >= WIDE_THRESHOLD
+
+    repo = panels.get("repo")
+    github = panels.get("github")
+    branches = panels.get("branches")
+    working_tree = panels.get("working_tree")
+    stash = panels.get("stashes")
+    log = panels.get("log")
+    worktrees = panels.get("worktrees")
+
+    if wide:
+        parts: list[Table | Panel] = []
+
+        # Row 1: Repository | GitHub
+        if github:
+            row1 = Table.grid(padding=(0, 1))
+            row1.add_column(ratio=1)
+            row1.add_column(ratio=1)
+            row1.add_row(repo, github)
+            parts.append(row1)
+        elif repo:
+            parts.append(repo)
+
+        # Row 2: Branches (full width)
+        if branches:
+            parts.append(branches)
+
+        # Row 3: Working Tree | Stashes | Worktrees (3-up, only non-None panels)
+        row3_panels = [p for p in (working_tree, stash, worktrees) if p is not None]
+        if row3_panels:
+            row3 = Table.grid(padding=(0, 1))
+            for _ in row3_panels:
+                row3.add_column(ratio=1)
+            row3.add_row(*row3_panels)
+            parts.append(row3)
+
+        # Row 4: Recent Commits (full width)
+        if log:
+            parts.append(log)
+
+        if parts:
+            console.print(Group(*parts))
+    else:
+        all_panels = [repo, github, branches, working_tree, stash, log, worktrees]
+        visible = [p for p in all_panels if p is not None]
+        if visible:
+            console.print(Group(*visible))
+
+
+@app.callback(invoke_without_command=True)
+def info(
+    ctx: typer.Context,  # noqa: ARG001
+) -> None:
+    """Show a rich dashboard for the current repository.
+
+    Displays repository metadata, branch status, working tree state,
+    recent commits, and optionally GitHub info and worktree listings.
+
+    [bold]Examples:[/bold]
+
+      gx info                Full dashboard
+      gx info -v             Dashboard with debug output
+      gx                     Same as gx info (default command)
+    """
+    check_git_repo()
+
+    root = repo_root()
+
+    # Gather all panels
+    repo = _repo_panel()
+
+    remote_result = git("remote", "get-url", "origin")
+    remote_url = remote_result.stdout if remote_result.success else ""
+    github = _github_panel(remote_url)
+
+    stashes = stash_counts()
+    porcelain_result = git("status", "--porcelain")
+    porcelain = porcelain_result.stdout if porcelain_result.success else ""
+    staged, modified, unmerged, untracked = count_file_statuses(porcelain)
+
+    rows = collect_branch_data(show_all=True, current_porcelain=porcelain)
+    branches = render_branch_panel(rows)
+    working_tree = render_working_tree_panel(
+        staged=staged, modified=modified, unmerged=unmerged, untracked=untracked
+    )
+    stash = _stash_panel(stashes)
+    log = _log_panel()
+    worktrees_panel = _worktree_panel(root)
+
+    _compose_dashboard(
+        {
+            "repo": repo,
+            "github": github,
+            "branches": branches,
+            "working_tree": working_tree,
+            "stashes": stash,
+            "log": log,
+            "worktrees": worktrees_panel,
+        }
+    )
