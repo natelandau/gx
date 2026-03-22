@@ -446,6 +446,14 @@ def _render_branch_status(rows: list[BranchRow]) -> Text | None:
     return output
 
 
+def _info_text(message: str) -> Text:
+    """Build an info-styled Text with checkmark marker."""
+    text = Text()
+    text.append("✓", style="info.marker")
+    text.append(f"  {message}", style="info.message")
+    return text
+
+
 def _render_file_panel(
     porcelain_output: str,
     show_files: bool,  # noqa: FBT001
@@ -465,10 +473,7 @@ def _render_file_panel(
         entries = _parse_porcelain(porcelain_output)
         root = repo_root()
         return _build_file_tree(entries, root.name)
-    text = Text()
-    text.append("✓", style="info.marker")
-    text.append("  Working tree clean", style="info.message")
-    return text
+    return _info_text("Working tree clean")
 
 
 def _print_status_output(
@@ -544,10 +549,9 @@ def status(
     show_branches = not files
 
     porcelain_output = ""
-    if show_files or show_branches:
-        result = git("status", "--porcelain")
-        if result.success:
-            porcelain_output = result.stdout
+    result = git("status", "--porcelain")
+    if result.success:
+        porcelain_output = result.stdout
 
     file_panel = _render_file_panel(porcelain_output, show_files)
 
@@ -557,10 +561,7 @@ def status(
         branch_table = _render_branch_status(rows)
 
     if file_panel is None and branch_table is None:
-        clean_text = Text()
-        clean_text.append("✓", style="info.marker")
-        clean_text.append("  Everything clean", style="info.message")
-        console.print(Panel(clean_text, border_style="dim"))
+        console.print(Panel(_info_text("Everything clean"), border_style="dim"))
         return
 
     _print_status_output(file_panel, branch_table)
