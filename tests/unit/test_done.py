@@ -209,8 +209,9 @@ class TestDoneMode2:
         # Then
         mock_chdir.assert_called_once_with(main_path)
         captured = capsys.readouterr()
-        assert "Removed worktree" in captured.out
-        assert str(main_path) in captured.out.replace("\n", "")
+        assert "Remove worktree" in captured.out
+        err_flat = captured.err.replace("\n", "")
+        assert str(main_path) in err_flat
 
     def test_dirty_worktree_aborts(
         self,

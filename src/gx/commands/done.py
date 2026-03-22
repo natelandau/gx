@@ -17,7 +17,7 @@ from gx.commands.pull import (
     validate_branch,
 )
 from gx.lib.branch import current_branch, default_branch
-from gx.lib.console import error, info, set_verbosity, warning
+from gx.lib.console import error, set_verbosity, step, warning
 from gx.lib.git import check_git_repo, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 from gx.lib.worktree import WorktreeInfo, list_worktrees, remove_worktree
@@ -55,10 +55,11 @@ def _checkout_and_pull(target_branch: str) -> None:
     Args:
         target_branch: The branch to check out (typically the default branch).
     """
-    result = git("checkout", target_branch)
-    if not result.success:
-        error(f"Failed to checkout {target_branch}: {result.stderr}")
-        raise typer.Exit(1)
+    with step(f"Switch to {target_branch}"):
+        result = git("checkout", target_branch)
+        if not result.success:
+            error(f"Failed to checkout {target_branch}: {result.stderr}")
+            raise typer.Exit(1)
 
     _branch, remote, remote_branch = validate_branch()
     stashed = stash_if_dirty()
@@ -76,11 +77,10 @@ def _delete_branch(branch: str) -> None:
     Args:
         branch: The branch name to delete.
     """
-    result = git("branch", "-D", branch)
-    if result.success:
-        info(f"Deleted branch {branch}")
-    else:
-        warning(f"Could not delete branch {branch}: {result.stderr}")
+    with step(f"Delete branch {branch}"):
+        result = git("branch", "-D", branch)
+        if not result.success:
+            warning(f"Could not delete branch {branch}: {result.stderr}")
 
 
 @app.callback(invoke_without_command=True)
@@ -138,15 +138,15 @@ def done(
         # pathlib has no chdir equivalent; os.chdir is the only option
         os.chdir(main_path)
 
-        result = remove_worktree(worktree.path)
-        if not result.success:
-            error(f"Failed to remove worktree {worktree.path}: {result.stderr}")
-            raise typer.Exit(1)
+        with step(f"Remove worktree {worktree.path}"):
+            result = remove_worktree(worktree.path)
+            if not result.success:
+                error(f"Failed to remove worktree {worktree.path}: {result.stderr}")
+                raise typer.Exit(1)
 
-        info(f"Removed worktree {worktree.path}")
         _checkout_and_pull(target)
         _delete_branch(branch)
-        info(f"Your previous working directory was removed. Run: cd {main_path}")
+        warning(f"Your previous working directory was removed. Run: cd {main_path}")
     else:
         # Mode 1: on a feature branch
         _checkout_and_pull(target)
