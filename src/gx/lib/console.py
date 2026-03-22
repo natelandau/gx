@@ -42,6 +42,12 @@ GX_THEME = Theme(
         "ahead": "green",
         "behind": "red",
         "clean": "green",
+        "log_sha": "yellow",
+        "log_time": "green",
+        "log_author": "bold blue",
+        "log_ref_tag": "bold yellow",
+        "log_body": "dim",
+        "log_graph": "dim",
     }
 )
 
