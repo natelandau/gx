@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import typer
+from rich.console import Group
+from rich.table import Table
 from rich.text import Text
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
@@ -166,3 +168,62 @@ def render_ref_banner(refs: RefsData) -> Text | None:
         text.append(tag, style="log_ref_tag")
 
     return text
+
+
+def render_log_grid(entries: list[LogEntry], *, show_body: bool) -> Group | None:
+    """Render log entries as an invisible Rich grid with optional commit bodies.
+
+    Uses a Rich Table with no visible chrome for column alignment. When show_body
+    is True, commit bodies are rendered as indented dim text below each row.
+
+    Args:
+        entries: Parsed log entries to render.
+        show_body: Whether to include commit bodies below rows.
+
+    Returns:
+        A Rich Group containing the table and body text, or None if entries is empty.
+    """
+    if not entries:
+        return None
+
+    if not show_body:
+        table = Table(
+            show_header=False,
+            show_edge=False,
+            box=None,
+            pad_edge=False,
+            padding=(0, 2),
+        )
+        table.add_column(style="log_sha", no_wrap=True, width=7)
+        table.add_column(style="log_time", no_wrap=True)
+        table.add_column(no_wrap=False, ratio=1)
+        table.add_column(style="log_author", no_wrap=True, justify="right")
+
+        for entry in entries:
+            table.add_row(entry.sha, entry.relative_time, entry.subject, entry.author)
+
+        return Group(table)
+
+    # With bodies: build individual one-row tables + body text for spacing control
+    renderables: list[Table | Text] = []
+    for entry in entries:
+        row_table = Table(
+            show_header=False,
+            show_edge=False,
+            box=None,
+            pad_edge=False,
+            padding=(0, 2),
+        )
+        row_table.add_column(style="log_sha", no_wrap=True, width=7)
+        row_table.add_column(style="log_time", no_wrap=True)
+        row_table.add_column(no_wrap=False, ratio=1)
+        row_table.add_column(style="log_author", no_wrap=True, justify="right")
+        row_table.add_row(entry.sha, entry.relative_time, entry.subject, entry.author)
+        renderables.append(row_table)
+
+        if entry.body:
+            body_text = Text(f"  {entry.body}", style="log_body")
+            renderables.append(body_text)
+            renderables.append(Text(""))
+
+    return Group(*renderables)

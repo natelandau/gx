@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
-from gx.commands.log import LogEntry, RefsData, parse_log_entries, parse_refs, render_ref_banner
+from io import StringIO
+
+from rich.console import Console
+
+from gx.commands.log import (
+    LogEntry,
+    RefsData,
+    parse_log_entries,
+    parse_refs,
+    render_log_grid,
+    render_ref_banner,
+)
+from gx.lib.console import GX_THEME
 
 
 class TestParseLogEntries:
@@ -144,3 +156,69 @@ class TestRenderRefBanner:
         banner = render_ref_banner(refs)
         # Then
         assert banner is None
+
+
+class TestRenderLogGrid:
+    """Tests for rendering log entries as a Rich grid."""
+
+    def test_renders_basic_grid(self):
+        """Verify grid output contains SHA, time, subject, and author."""
+        # Given
+        entries = [
+            LogEntry(
+                sha="9c96da2",
+                relative_time="3 days ago",
+                subject="bump release",
+                author="Nate",
+                refs="",
+                body="",
+            ),
+            LogEntry(
+                sha="cdd86d0",
+                relative_time="3 days ago",
+                subject="add flag",
+                author="Nate",
+                refs="",
+                body="",
+            ),
+        ]
+        # When
+        table = render_log_grid(entries, show_body=False)
+        # Then — render to string and check content
+        buf = StringIO()
+        console = Console(file=buf, width=120, theme=GX_THEME)
+        console.print(table)
+        output = buf.getvalue()
+        assert "9c96da2" in output
+        assert "cdd86d0" in output
+        assert "bump release" in output
+        assert "Nate" in output
+
+    def test_renders_body_when_full(self):
+        """Verify commit body appears indented below the grid row."""
+        # Given
+        entries = [
+            LogEntry(
+                sha="9c96da2",
+                relative_time="3 days ago",
+                subject="bump release",
+                author="Nate",
+                refs="",
+                body="Detailed body text",
+            ),
+        ]
+        # When
+        result = render_log_grid(entries, show_body=True)
+        # Then
+        buf = StringIO()
+        console = Console(file=buf, width=120, theme=GX_THEME)
+        console.print(result)
+        output = buf.getvalue()
+        assert "Detailed body text" in output
+
+    def test_empty_entries_returns_none(self):
+        """Verify None returned for empty entry list."""
+        # When
+        result = render_log_grid([], show_body=False)
+        # Then
+        assert result is None
