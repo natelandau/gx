@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import typer
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 from gx.lib.display import kv_grid
 from gx.lib.git import git, repo_root
+from gx.lib.github import gh, gh_available, is_github_remote
+from gx.lib.worktree import list_worktrees
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -22,6 +26,8 @@ _BYTES_PER_UNIT = 1024
 _SECONDS_PER_MINUTE = 60
 _SECONDS_PER_HOUR = 3600
 _SECONDS_PER_DAY = 86400
+_LOG_FORMAT = "%h%x00%s%x00%an%x00%ar"
+_LOG_FIELD_COUNT = 4
 
 app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
 
@@ -235,3 +241,191 @@ def _repo_panel() -> Panel:
     ]
 
     return Panel(kv_grid(rows), title="Repository", border_style="dim")
+
+
+def _gh_pr_count() -> int | None:
+    """Fetch the count of open pull requests via the gh CLI.
+
+    Returns:
+        The number of open PRs, or None if the command fails or gh is unavailable.
+    """
+    result = gh("pr", "list", "--state", "open", "--json", "number", "--limit", "1000")
+    if not result.success:
+        return None
+    try:
+        return len(json.loads(result.stdout))
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _gh_issue_count() -> int | None:
+    """Fetch the count of open issues via the gh CLI.
+
+    Returns:
+        The number of open issues, or None if the command fails or gh is unavailable.
+    """
+    result = gh("issue", "list", "--state", "open", "--json", "number", "--limit", "1000")
+    if not result.success:
+        return None
+    try:
+        return len(json.loads(result.stdout))
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _github_panel(remote_url: str) -> Panel | None:
+    """Build a Rich Panel showing GitHub repository metadata.
+
+    Queries the gh CLI for repo description, visibility, star count, fork status,
+    open PR count, and open issue count. Returns None when gh is unavailable, the
+    remote is not a GitHub URL, or the gh command fails.
+
+    Args:
+        remote_url: The git remote URL to check and query against.
+
+    Returns:
+        A Rich Panel ready for console output, or None if GitHub info is unavailable.
+    """
+    if not gh_available():
+        return None
+    if not is_github_remote(remote_url):
+        return None
+
+    result = gh(
+        "repo",
+        "view",
+        "--json",
+        "description,visibility,stargazerCount,isFork,parent",
+    )
+    if not result.success:
+        return None
+
+    try:
+        data = json.loads(result.stdout)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+    description = data.get("description") or "\u2014"
+    visibility = str(data.get("visibility", "")).capitalize() or "\u2014"
+    stars = str(data.get("stargazerCount", 0))
+
+    is_fork = data.get("isFork", False)
+    if is_fork:
+        parent = data.get("parent") or {}
+        parent_name = parent.get("nameWithOwner", "unknown")
+        fork_val: str | Text = Text(f"Yes \u2014 {parent_name}", style="dim")
+    else:
+        fork_val = "No"
+
+    pr_count = _gh_pr_count()
+    pr_text = Text()
+    if pr_count is None:
+        pr_text.append("\u2014")
+    else:
+        pr_text.append(str(pr_count), style="ahead")
+
+    issue_count = _gh_issue_count()
+    issue_text = Text()
+    if issue_count is None:
+        issue_text.append("\u2014")
+    else:
+        issue_text.append(str(issue_count), style="unstaged")
+
+    rows: list[tuple[str, str | Text]] = [
+        ("Description", description),
+        ("Visibility", visibility),
+        ("Stars", stars),
+        ("Fork", fork_val),
+        ("Open PRs", pr_text),
+        ("Open issues", issue_text),
+    ]
+
+    return Panel(kv_grid(rows), title="GitHub", border_style="dim")
+
+
+def _stash_panel(stashes: dict[str, int]) -> Panel | None:
+    """Build a Rich Panel showing stash counts per branch.
+
+    Returns None when the stash dict is empty. Shows the total stash count in
+    the header row followed by a per-branch breakdown sorted alphabetically.
+
+    Args:
+        stashes: Mapping of branch name to stash count.
+
+    Returns:
+        A Rich Panel ready for console output, or None if there are no stashes.
+    """
+    if not stashes:
+        return None
+
+    total = sum(stashes.values())
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="dim_label", justify="right")
+    grid.add_column(style="value")
+
+    grid.add_row("Total", str(total))
+    for branch in sorted(stashes):
+        branch_text = Text(branch, style="stash_branch")
+        grid.add_row(branch_text, str(stashes[branch]))
+
+    return Panel(grid, title="Stashes", border_style="dim")
+
+
+def _log_panel() -> Panel | None:
+    """Build a Rich Panel showing the 5 most recent commits.
+
+    Each row shows the short SHA, commit subject, author name, and relative
+    time. Returns None when the git log command fails or produces no output.
+
+    Returns:
+        A Rich Panel ready for console output, or None if no commits are available.
+    """
+    result = git("log", f"--format={_LOG_FORMAT}", "-5")
+    if not result.success or not result.stdout:
+        return None
+
+    grid = Table.grid(padding=(0, 1))
+    grid.add_column(style="log_sha", width=8, no_wrap=True)
+    grid.add_column()
+    grid.add_column(style="log_author")
+    grid.add_column(style="log_time", justify="right")
+
+    for line in result.stdout.splitlines():
+        fields = line.split("\x00")
+        if len(fields) != _LOG_FIELD_COUNT:
+            continue
+        sha, subject, author, time_ago = fields
+        grid.add_row(sha, subject, author, time_ago)
+
+    return Panel(grid, title="Recent Commits", border_style="dim")
+
+
+def _worktree_panel(root: Path) -> Panel | None:
+    """Build a Rich Panel listing non-main worktrees with their paths.
+
+    Shows branch name and path relative to the repo root for each non-main
+    worktree. Returns None when no non-main worktrees exist.
+
+    Args:
+        root: The repository root path, used to compute relative paths.
+
+    Returns:
+        A Rich Panel ready for console output, or None if no extra worktrees exist.
+    """
+    worktrees = [wt for wt in list_worktrees() if not wt.is_main]
+    if not worktrees:
+        return None
+
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="wt_branch")
+    grid.add_column(style="wt_path")
+
+    for wt in worktrees:
+        branch = wt.branch or "(detached)"
+        try:
+            rel_path = str(wt.path.relative_to(root))
+        except ValueError:
+            rel_path = str(wt.path)
+        grid.add_row(branch, rel_path)
+
+    return Panel(grid, title="Worktrees", border_style="dim")
