@@ -7,8 +7,9 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.tree import Tree
 
-from gx.lib.branch import BranchRow, collect_branch_data, current_branch
+from gx.lib.branch import collect_branch_data, current_branch
 from gx.lib.console import console, error
+from gx.lib.display import render_branch_panel
 from gx.lib.git import check_git_repo, git, repo_root
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
@@ -126,122 +127,6 @@ def _build_file_tree(entries: list[tuple[str, str]], root_name: str) -> Tree | N
     return tree
 
 
-def _ahead_behind_segment(label: str, ahead: int, behind: int) -> Text:
-    """Build a labeled ahead/behind Rich Text segment.
-
-    Args:
-        label: The metric label (e.g. "target", "remote").
-        ahead: Number of commits ahead.
-        behind: Number of commits behind.
-    """
-    seg = Text()
-    seg.append(f"{label}: ", style="branch_label")
-    if ahead:
-        seg.append(f"{ahead}↑", style="ahead")
-    if ahead and behind:
-        seg.append(" ")
-    if behind:
-        seg.append(f"{behind}↓", style="behind")
-    return seg
-
-
-def _build_metric_segments(row: BranchRow) -> list[Text]:
-    """Build the list of non-zero metric segments for a branch row.
-
-    Each segment is a Rich Text with the label in dim and the value in its
-    metric-specific color. Only non-zero metrics are included.
-
-    Args:
-        row: The branch data to build metrics for.
-
-    Returns:
-        List of Rich Text segments, one per non-zero metric.
-    """
-    segments: list[Text] = []
-
-    is_default = row.branch == row.target
-
-    if not is_default and (row.ahead_target or row.behind_target):
-        segments.append(_ahead_behind_segment("target", row.ahead_target, row.behind_target))
-
-    has_remote_tracking = row.ahead_remote is not None or row.behind_remote is not None
-    if has_remote_tracking:
-        if row.ahead_remote or row.behind_remote:
-            segments.append(
-                _ahead_behind_segment("remote", row.ahead_remote or 0, row.behind_remote or 0)
-            )
-    elif row.is_active:
-        seg = Text()
-        seg.append("remote: ", style="branch_label")
-        seg.append("—", style="branch_label")
-        segments.append(seg)
-
-    metric_map: list[tuple[str, int, str]] = [
-        ("staged", row.staged, "staged"),
-        ("modified", row.modified, "unstaged"),
-        ("unmerged", row.unmerged, "warning"),
-        ("untracked", row.untracked, "untracked"),
-        ("stashes", row.stashes, "untracked"),
-    ]
-    for label, value, style in metric_map:
-        if value:
-            seg = Text()
-            seg.append(f"{label}: ", style="branch_label")
-            seg.append(str(value), style=style)
-            segments.append(seg)
-
-    return segments
-
-
-def _render_branch_status(rows: list[BranchRow]) -> Text | None:
-    """Render branch status as a two-line-per-branch text display.
-
-    Each branch gets a name line and an indented metrics line. Only non-zero
-    metrics are shown. Clean branches display a checkmark.
-
-    Args:
-        rows: The collected BranchRow data to render.
-
-    Returns:
-        A Rich Text object ready for console output, or None if rows is empty.
-    """
-    if not rows:
-        return None
-
-    sep = Text("  │  ", style="branch_sep")
-    output = Text()
-
-    for i, row in enumerate(rows):
-        if row.is_current:
-            output.append("► ", style="branch_marker")
-        else:
-            output.append("  ")
-        output.append(row.branch, style="branch_current")
-
-        output.append(f" → {row.target}", style="branch_target")
-
-        if row.is_worktree:
-            output.append("  [wt]", style="branch_wt")
-
-        output.append("\n")
-
-        segments = _build_metric_segments(row)
-        if segments:
-            output.append("    ")
-            for j, seg in enumerate(segments):
-                if j > 0:
-                    output.append_text(sep)
-                output.append_text(seg)
-        else:
-            output.append("    ")
-            output.append("✓ clean", style="clean")
-
-        if i < len(rows) - 1:
-            output.append("\n\n")
-
-    return output
-
-
 def _info_text(message: str) -> Text:
     """Build an info-styled Text with checkmark marker."""
     text = Text()
@@ -274,22 +159,22 @@ def _render_file_panel(
 
 def _print_status_output(
     file_panel: Tree | Text | None,
-    branch_table: Text | None,
+    branch_panel: Panel | None,
 ) -> None:
     """Print the assembled status panels to the console.
 
     Args:
         file_panel: Built Rich Tree or clean-tree Text to display in a panel, or None.
-        branch_table: Rendered branch dashboard text, or None.
+        branch_panel: Rendered branch panel, or None.
     """
     if file_panel is not None:
         branch_name = current_branch() or git("rev-parse", "--short", "HEAD").stdout
         console.print(Panel(file_panel, title=branch_name, border_style="dim"))
 
-    if branch_table is not None:
+    if branch_panel is not None:
         if file_panel is not None:
             console.print()
-        console.print(Panel(branch_table, title="Branch Status", border_style="dim"))
+        console.print(branch_panel)
 
 
 FILES_OPTION: bool = typer.Option(
@@ -351,13 +236,13 @@ def status(
 
     file_panel = _render_file_panel(porcelain_output, show_files)
 
-    branch_table = None
+    branch_panel = None
     if show_branches:
         rows = collect_branch_data(show_all=show_all, current_porcelain=porcelain_output)
-        branch_table = _render_branch_status(rows)
+        branch_panel = render_branch_panel(rows)
 
-    if file_panel is None and branch_table is None:
+    if file_panel is None and branch_panel is None:
         console.print(Panel(_info_text("Everything clean"), border_style="dim"))
         return
 
-    _print_status_output(file_panel, branch_table)
+    _print_status_output(file_panel, branch_panel)

@@ -76,18 +76,18 @@ class TestHelpOutput:
             "gx.commands.status.git",
             return_value=GitResult(command="git status", returncode=0, stdout="", stderr=""),
         )
-        mocker.patch("gx.commands.status.current_branch", return_value="main")
-        mocker.patch("gx.commands.status.default_branch", return_value="main")
-        mocker.patch("gx.commands.status.all_local_branches", return_value=frozenset({"main"}))
-        mocker.patch("gx.commands.status.list_worktrees", return_value=[])
-        mocker.patch("gx.commands.status.stash_counts", return_value={})
-        mocker.patch("gx.commands.status.ahead_behind", return_value=(0, 0))
-        mocker.patch("gx.commands.status.tracking_remote_ref", return_value=None)
+        mocker.patch("gx.lib.branch.current_branch", return_value="main")
+        mocker.patch("gx.lib.branch.default_branch", return_value="main")
+        mocker.patch("gx.lib.branch.all_local_branches", return_value=frozenset({"main"}))
+        mocker.patch("gx.lib.worktree.list_worktrees", return_value=[])
+        mocker.patch("gx.lib.branch.stash_counts", return_value={})
+        mocker.patch("gx.lib.branch.ahead_behind", return_value=(0, 0))
+        mocker.patch("gx.lib.branch.tracking_remote_ref", return_value=None)
 
         result = runner.invoke(app, [])
         # Bare gx runs status; the current branch is always shown in the table
         assert result.exit_code == 0
-        assert "Branch Status" in result.output
+        assert "Branches" in result.output
 
     def test_help_flag(self):
         """Verify --help flag prints help text."""

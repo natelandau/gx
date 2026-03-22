@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
+
+if TYPE_CHECKING:
+    from pathlib import Path
 import pytest
 import typer
 
@@ -177,120 +180,6 @@ class TestStatusCommand:
         assert "mutually exclusive" in captured.err.lower() or "cannot" in captured.err.lower()
 
 
-class TestRenderBranchStatus:
-    """Tests for rendering the two-line branch status display."""
-
-    def test_renders_active_branch_with_metrics(self):
-        """Verify active branch shows name on line 1 and non-zero metrics on line 2."""
-        from gx.commands.status import _render_branch_status
-
-        rows = [
-            _branch_row(
-                branch="feat/login",
-                ahead_target=3,
-                ahead_remote=2,
-                behind_remote=0,
-                staged=1,
-                modified=2,
-                untracked=1,
-                is_current=True,
-            ),
-        ]
-        result = _render_branch_status(rows)
-        assert result is not None
-        text = str(result)
-        assert "feat/login" in text
-        assert "main" in text
-        assert "target:" in text
-        assert "staged:" in text
-        assert "modified:" in text
-        assert "untracked:" in text
-
-    def test_returns_none_for_empty_rows(self):
-        """Verify None returned when no rows to display."""
-        from gx.commands.status import _render_branch_status
-
-        result = _render_branch_status([])
-        assert result is None
-
-    def test_clean_branch_shows_checkmark(self):
-        """Verify branch with all-zero metrics shows clean indicator."""
-        from gx.commands.status import _render_branch_status
-
-        rows = [_branch_row(branch="main", ahead_remote=0, behind_remote=0, is_current=True)]
-        result = _render_branch_status(rows)
-        text = str(result)
-        assert "✓" in text
-        assert "clean" in text
-
-    def test_worktree_branch_shows_wt_tag(self):
-        """Verify worktree branches display [wt] suffix."""
-        from gx.commands.status import _render_branch_status
-
-        rows = [
-            _branch_row(
-                branch="feat/dark-mode",
-                ahead_target=1,
-                is_worktree=True,
-                worktree_path=Path("/worktrees/dark-mode"),
-            ),
-        ]
-        result = _render_branch_status(rows)
-        text = str(result)
-        assert "[wt]" in text
-
-    def test_omits_target_metric_for_default_branch(self):
-        """Verify target metric is omitted when branch is the default branch."""
-        from gx.commands.status import _render_branch_status
-
-        rows = [_branch_row(branch="main", staged=2, is_current=True)]
-        result = _render_branch_status(rows)
-        text = str(result)
-        assert "target:" not in text
-        assert "staged:" in text
-
-    def test_no_tracking_shows_remote_dash_when_other_metrics(self):
-        """Verify remote: — shown when no tracking but other metrics present."""
-        from gx.commands.status import _render_branch_status
-
-        rows = [_branch_row(ahead_target=1)]
-        result = _render_branch_status(rows)
-        text = str(result)
-        assert "remote:" in text
-        assert "—" in text
-
-    def test_no_tracking_clean_branch_suppresses_remote_dash(self):
-        """Verify remote: — is suppressed for clean branches with no tracking."""
-        from gx.commands.status import _render_branch_status
-
-        rows = [_branch_row(branch="feat/stale")]
-        result = _render_branch_status(rows)
-        text = str(result)
-        assert "remote:" not in text
-        assert "✓" in text
-
-    def test_no_tracking_with_file_metrics_shows_remote_dash(self):
-        """Verify remote: — shown when no tracking but file metrics present."""
-        from gx.commands.status import _render_branch_status
-
-        rows = [_branch_row(branch="feat/local", staged=2)]
-        result = _render_branch_status(rows)
-        text = str(result)
-        assert "remote:" in text
-        assert "—" in text
-        assert "staged:" in text
-
-    def test_ahead_and_behind_same_ref(self):
-        """Verify both ahead and behind values shown for same reference."""
-        from gx.commands.status import _render_branch_status
-
-        rows = [_branch_row(branch="feat/diverged", ahead_target=3, behind_target=2)]
-        result = _render_branch_status(rows)
-        text = str(result)
-        assert "3↑" in text
-        assert "2↓" in text
-
-
 class TestStatusEdgeCases:
     """Tests for status command edge cases."""
 
@@ -354,4 +243,4 @@ class TestStatusEdgeCases:
 
         # Then — should show branch table, no file tree
         captured = capsys.readouterr()
-        assert "Branch Status" in captured.out
+        assert "Branches" in captured.out
