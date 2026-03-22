@@ -10,6 +10,10 @@ from rich.console import Group
 from rich.table import Table
 from rich.text import Text
 
+from gx.lib.console import console, error, set_verbosity
+from gx.lib.git import check_git_repo, git, set_dry_run
+from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
+
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
@@ -19,6 +23,28 @@ _FIELD_SEP = "\x00"
 _DEFAULT_COUNT = 15
 _BODY_FIELD_INDEX = 5
 _KNOWN_REMOTE_NAMES = {"origin", "upstream", "fork"}
+
+COUNT_OPTION: int = typer.Option(
+    _DEFAULT_COUNT,
+    "--count",
+    "-c",
+    help="Number of commits to show.",
+)
+FULL_OPTION: bool = typer.Option(
+    False,  # noqa: FBT003
+    "--full",
+    help="Show full commit bodies.",
+)
+GRAPH_OPTION: bool = typer.Option(
+    False,  # noqa: FBT003
+    "--graph",
+    "-g",
+    help="Show branch graph.",
+)
+
+_DEFAULT_FORMAT = "%x01%h%x00%ar%x00%s%x00%an%x00%D"
+_FULL_FORMAT = "%x01%h%x00%ar%x00%s%x00%an%x00%D%x00%b"
+_GRAPH_FORMAT = "%h %ar <%an> %s%d"
 
 _SHA_RE = re.compile(r"([a-f0-9]{7,})")
 _TIME_RE = re.compile(r"(\d+ \w+ ago)")
@@ -291,3 +317,81 @@ def colorize_graph_line(line: str) -> Text:
         text.append(remaining)
 
     return text
+
+
+def _run_grid_mode(count: int, *, full: bool) -> None:
+    """Execute grid rendering mode (default or --full)."""
+    fmt = _FULL_FORMAT if full else _DEFAULT_FORMAT
+    result = git("log", f"-n{count}", f"--format={fmt}")
+    result.raise_on_error()
+
+    entries = parse_log_entries(result.stdout, has_body=full)
+    if not entries:
+        console.print("No commits found.", style="warning")
+        return
+
+    refs = parse_refs(entries)
+    banner = render_ref_banner(refs)
+    if banner:
+        console.print(banner)
+        console.print()
+
+    grid = render_log_grid(entries, show_body=full)
+    if grid:
+        console.print(grid)
+
+
+def _run_graph_mode(count: int) -> None:
+    """Execute graph passthrough rendering mode."""
+    result = git("log", "--graph", f"-n{count}", f"--format={_GRAPH_FORMAT}")
+    result.raise_on_error()
+
+    if not result.stdout:
+        console.print("No commits found.", style="warning")
+        return
+
+    for line in result.stdout.splitlines():
+        styled = colorize_graph_line(line)
+        console.print(styled)
+
+
+@app.callback(invoke_without_command=True)
+def log(
+    ctx: typer.Context,  # noqa: ARG001
+    count: int = COUNT_OPTION,
+    full: bool = FULL_OPTION,  # noqa: FBT001
+    graph: bool = GRAPH_OPTION,  # noqa: FBT001
+    verbose: int = VERBOSE_OPTION,
+    dry_run: bool = DRY_RUN_OPTION,  # noqa: FBT001
+) -> None:
+    """Show a pretty commit log.
+
+    Displays a scannable list of recent commits with color-coded SHA, relative time, subject, and author. A ref banner at the top shows where HEAD, branches, and tags point.
+
+    [bold]Modes:[/bold]
+
+    - Default: clean grid with aligned columns
+    - --full: includes commit bodies below each entry
+    - --graph: branch/merge graph with colorized output
+
+    [bold]Examples:[/bold]
+
+      gx log                Show last 15 commits
+      gx log -c 30          Show last 30 commits
+      gx log --full         Include commit bodies
+      gx log --graph        Show branch graph
+    """
+    if verbose:
+        set_verbosity(verbose)
+    if dry_run:
+        set_dry_run(enabled=True)
+    check_git_repo()
+
+    if full and graph:
+        error("--full and --graph are mutually exclusive.")
+        raise typer.Exit(1)
+
+    if graph:
+        _run_graph_mode(count)
+    else:
+        _run_grid_mode(count, full=full)
