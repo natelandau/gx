@@ -1,17 +1,20 @@
 """Tests for gx console output system."""
 
 import pytest
+import typer
+from rich.text import Text
 
 from gx.constants import Verbosity
 from gx.lib.console import (
+    GitHighlighter,
     console,
     debug,
     dryrun,
     err_console,
     error,
     get_verbosity,
-    info,
     set_verbosity,
+    step,
     trace,
     warning,
 )
@@ -65,21 +68,51 @@ class TestConsoleInstances:
         assert err_console.stderr is True
 
 
-class TestInfoHelper:
-    """Tests for info() output."""
+class TestStepContextManager:
+    """Tests for step() context manager."""
 
-    def test_info_prints_at_info_level(self, capsys):
-        """Verify info() prints to stdout at default verbosity."""
-        info("hello")
+    def test_step_prints_success_marker(self, capsys):
+        """Verify step prints green checkmark on success."""
+        with step("Do something"):
+            pass
         captured = capsys.readouterr()
-        assert "hello" in captured.out
+        assert "✓" in captured.out
+        assert "Do something" in captured.out
 
-    def test_info_prints_at_debug_level(self, capsys):
-        """Verify info() still prints when verbosity is DEBUG."""
-        set_verbosity(1)
-        info("hello")
+    def test_step_prints_failure_marker_on_exception(self, capsys):
+        """Verify step prints red X on exception and re-raises."""
+        with pytest.raises(RuntimeError), step("Do something"):  # noqa: PT012
+            msg = "boom"
+            raise RuntimeError(msg)
         captured = capsys.readouterr()
-        assert "hello" in captured.out
+        assert "✗" in captured.out
+        assert "Do something" in captured.out
+
+    def test_step_prints_failure_marker_on_typer_exit(self, capsys):
+        """Verify step prints red X on typer.Exit and re-raises."""
+        with pytest.raises(typer.Exit), step("Do something"):
+            raise typer.Exit(1)
+        captured = capsys.readouterr()
+        assert "✗" in captured.out
+
+    def test_step_sub_items_printed_after_marker(self, capsys):
+        """Verify sub-items are printed after the success marker."""
+        with step("Pull from origin") as s:
+            s.sub("commit abc1234")
+            s.sub("commit def5678")
+        captured = capsys.readouterr()
+        assert "│" in captured.out
+        assert "abc1234" in captured.out
+        assert "def5678" in captured.out
+
+    def test_step_sub_items_printed_on_failure(self, capsys):
+        """Verify sub-items are still printed when step fails."""
+        with pytest.raises(RuntimeError), step("Do something") as s:  # noqa: PT012
+            s.sub("partial result")
+            msg = "boom"
+            raise RuntimeError(msg)
+        captured = capsys.readouterr()
+        assert "partial result" in captured.out
 
 
 class TestDebugHelper:
@@ -96,6 +129,7 @@ class TestDebugHelper:
         set_verbosity(1)
         debug("visible")
         captured = capsys.readouterr()
+        assert "›" in captured.out  # noqa: RUF001
         assert "visible" in captured.out
 
     def test_debug_shown_at_trace_level(self, capsys):
@@ -103,6 +137,7 @@ class TestDebugHelper:
         set_verbosity(2)
         debug("visible")
         captured = capsys.readouterr()
+        assert "›" in captured.out  # noqa: RUF001
         assert "visible" in captured.out
 
 
@@ -138,8 +173,22 @@ class TestWarningHelper:
         """Verify warning() prints to stderr."""
         warning("careful")
         captured = capsys.readouterr()
+        assert "!" in captured.err
         assert "careful" in captured.err
         assert captured.out == ""
+
+
+class TestWarningDetail:
+    """Tests for warning() detail parameter."""
+
+    def test_warning_detail_no_marker(self, capsys):
+        """Verify detail=True omits the ! marker and indents."""
+        warning("first line")
+        warning("second line", detail=True)
+        captured = capsys.readouterr()
+        lines = captured.err.strip().split("\n")
+        assert "!" in lines[0]
+        assert "!" not in lines[1]
 
 
 class TestErrorHelper:
@@ -149,19 +198,33 @@ class TestErrorHelper:
         """Verify error() prints to stderr."""
         error("broken")
         captured = capsys.readouterr()
+        assert "✗" in captured.err
         assert "broken" in captured.err
         assert captured.out == ""
+
+
+class TestErrorDetail:
+    """Tests for error() detail parameter."""
+
+    def test_error_detail_no_marker(self, capsys):
+        """Verify detail=True omits the X marker and indents."""
+        error("first line")
+        error("second line", detail=True)
+        captured = capsys.readouterr()
+        lines = captured.err.strip().split("\n")
+        assert "✗" in lines[0]
+        assert "✗" not in lines[1]
 
 
 class TestDryrunHelper:
     """Tests for dryrun() output."""
 
     def test_dryrun_theme_is_bold_cyan(self):
-        """Verify GX_THEME defines dryrun as bold cyan."""
+        """Verify GX_THEME defines dryrun.message as bold cyan."""
         from gx.lib.console import GX_THEME
 
-        assert GX_THEME.styles["dryrun"].bold is True
-        assert GX_THEME.styles["dryrun"].color.name == "cyan"
+        assert GX_THEME.styles["dryrun.message"].bold is True
+        assert GX_THEME.styles["dryrun.message"].color.name == "cyan"
 
     def test_dryrun_prints_at_info_level(self, capsys):
         """Verify dryrun() prints to stdout at default verbosity."""
@@ -183,3 +246,53 @@ class TestDryrunHelper:
         dryrun("git push origin main")
         captured = capsys.readouterr()
         assert captured.err == ""
+
+
+class TestGitHighlighter:
+    """Tests for GitHighlighter regex patterns."""
+
+    @pytest.fixture
+    def highlighter(self) -> GitHighlighter:
+        """Return a GitHighlighter instance."""
+        return GitHighlighter()
+
+    def test_highlights_short_sha(self, highlighter: GitHighlighter) -> None:
+        """Verify 7-char hex strings are highlighted as SHAs."""
+        text = Text("0fa0a83 some message")
+        highlighter.highlight(text)
+        styles = [s.style for s in text._spans]
+        assert "git.sha" in styles
+
+    def test_highlights_commit_type(self, highlighter: GitHighlighter) -> None:
+        """Verify angular commit types are highlighted."""
+        text = Text("feat: add feature")
+        highlighter.highlight(text)
+        styles = [s.style for s in text._spans]
+        assert "git.type" in styles
+
+    def test_highlights_commit_scope(self, highlighter: GitHighlighter) -> None:
+        """Verify commit scopes in parens are highlighted."""
+        text = Text("feat(log): add feature")
+        highlighter.highlight(text)
+        styles = [s.style for s in text._spans]
+        assert "git.scope" in styles
+
+    def test_highlights_pr_reference(self, highlighter: GitHighlighter) -> None:
+        """Verify PR references like (#3) are highlighted."""
+        text = Text("add feature (#3)")
+        highlighter.highlight(text)
+        styles = [s.style for s in text._spans]
+        assert "git.pr" in styles
+
+    def test_no_false_positive_on_normal_text(self, highlighter: GitHighlighter) -> None:
+        """Verify normal text gets no highlighting."""
+        text = Text("hello world")
+        highlighter.highlight(text)
+        assert len(text._spans) == 0
+
+    def test_highlights_colon_after_type(self, highlighter: GitHighlighter) -> None:
+        """Verify colon after commit type is highlighted."""
+        text = Text("feat: add feature")
+        highlighter.highlight(text)
+        styles = [s.style for s in text._spans]
+        assert "git.colon" in styles

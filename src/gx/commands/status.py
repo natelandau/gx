@@ -21,7 +21,7 @@ from gx.lib.branch import (
     stash_counts,
     tracking_remote_ref,
 )
-from gx.lib.console import console, error, info
+from gx.lib.console import console, error
 from gx.lib.git import check_git_repo, git, repo_root
 from gx.lib.worktree import list_worktrees
 
@@ -413,15 +413,13 @@ def _render_branch_status(rows: list[BranchRow]) -> Text | None:
 
     sep = Text("  │  ", style="branch_sep")
     output = Text()
-    output.append("Branch Status\n\n", style="bold")
 
     for i, row in enumerate(rows):
         if row.is_current:
             output.append("► ", style="branch_marker")
-            output.append(row.branch, style="branch_current")
         else:
             output.append("  ")
-            output.append(row.branch)
+        output.append(row.branch, style="branch_current")
 
         output.append(f" → {row.target}", style="branch_target")
 
@@ -447,50 +445,54 @@ def _render_branch_status(rows: list[BranchRow]) -> Text | None:
     return output
 
 
+def _info_text(message: str) -> Text:
+    """Build an info-styled Text with checkmark marker."""
+    text = Text()
+    text.append("✓", style="info.marker")
+    text.append(f"  {message}", style="info.message")
+    return text
+
+
 def _render_file_panel(
     porcelain_output: str,
     show_files: bool,  # noqa: FBT001
-) -> tuple[Tree | None, bool]:
-    """Build the file tree panel and clean-tree flag from porcelain output.
+) -> Tree | Text | None:
+    """Build the file tree or clean-tree message from porcelain output.
 
     Args:
         porcelain_output: Raw stdout from `git status --porcelain`.
         show_files: Whether the file panel was requested.
 
     Returns:
-        A (file_tree, show_clean_tree) tuple.
+        A Rich Tree (changed files), Text (clean message), or None (panel not requested).
     """
     if not show_files:
-        return None, False
+        return None
     if porcelain_output:
         entries = _parse_porcelain(porcelain_output)
         root = repo_root()
-        return _build_file_tree(entries, root.name), False
-    return None, True
+        return _build_file_tree(entries, root.name)
+    return _info_text("Working tree clean")
 
 
 def _print_status_output(
-    file_tree: Tree | None,
-    show_clean_tree: bool,  # noqa: FBT001
+    file_panel: Tree | Text | None,
     branch_table: Text | None,
 ) -> None:
     """Print the assembled status panels to the console.
 
     Args:
-        file_tree: Built Rich Tree to display in a panel, or None.
-        show_clean_tree: Whether to show the clean working tree message.
+        file_panel: Built Rich Tree or clean-tree Text to display in a panel, or None.
         branch_table: Rendered branch dashboard text, or None.
     """
-    if show_clean_tree:
-        console.print("✓ Working tree clean", style="clean")
-    elif file_tree is not None:
+    if file_panel is not None:
         branch_name = current_branch() or git("rev-parse", "--short", "HEAD").stdout
-        console.print(Panel(file_tree, title=branch_name, border_style="dim"))
+        console.print(Panel(file_panel, title=branch_name, border_style="dim"))
 
     if branch_table is not None:
-        if file_tree is not None or show_clean_tree:
+        if file_panel is not None:
             console.print()
-        console.print(branch_table)
+        console.print(Panel(branch_table, title="Branch Status", border_style="dim"))
 
 
 FILES_OPTION: bool = typer.Option(
@@ -546,20 +548,19 @@ def status(
     show_branches = not files
 
     porcelain_output = ""
-    if show_files or show_branches:
-        result = git("status", "--porcelain")
-        if result.success:
-            porcelain_output = result.stdout
+    result = git("status", "--porcelain")
+    if result.success:
+        porcelain_output = result.stdout
 
-    file_tree, show_clean_tree = _render_file_panel(porcelain_output, show_files)
+    file_panel = _render_file_panel(porcelain_output, show_files)
 
     branch_table = None
     if show_branches:
         rows = _collect_branch_data(show_all=show_all, current_porcelain=porcelain_output)
         branch_table = _render_branch_status(rows)
 
-    if file_tree is None and not show_clean_tree and branch_table is None:
-        info("Everything clean")
+    if file_panel is None and branch_table is None:
+        console.print(Panel(_info_text("Everything clean"), border_style="dim"))
         return
 
-    _print_status_output(file_tree, show_clean_tree, branch_table)
+    _print_status_output(file_panel, branch_table)

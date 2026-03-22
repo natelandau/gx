@@ -7,7 +7,7 @@ from rich.prompt import Confirm
 
 from gx.lib.branch import current_branch, default_branch, tracking_branch
 from gx.lib.config import config
-from gx.lib.console import error, info, set_verbosity, warning
+from gx.lib.console import error, set_verbosity, step, step_result, warning
 from gx.lib.git import check_git_repo, get_dry_run, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 
@@ -88,14 +88,11 @@ def _print_summary(
 
     log_result = git("log", "--oneline", log_range)
     if not log_result.success or not log_result.stdout:
-        info("Already up to date.")
         return
 
     commits = log_result.stdout.splitlines()
-    verb = "Would push" if get_dry_run() else "Pushed"
-    info(f"{verb} {len(commits)} commit(s) to {remote}/{remote_branch}:")
-    for commit in commits:
-        info(f"  {commit}")
+    verb = "Would push" if get_dry_run() else "Push"
+    step_result(f"{verb} {len(commits)} commit(s) to {remote}/{remote_branch}", subs=commits)
 
 
 FORCE_OPTION: bool = typer.Option(
@@ -170,6 +167,7 @@ def push(
     if tags:
         push_args.append("--tags")
 
-    git(*push_args, timeout=120).raise_on_error()
+    with step(f"Push to {remote}/{remote_branch}"):
+        git(*push_args, timeout=120).raise_on_error()
 
     _print_summary(remote_ref_before, remote, remote_branch, default)

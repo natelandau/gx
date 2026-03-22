@@ -19,7 +19,7 @@ from gx.lib.branch import (
     merged_branches,
 )
 from gx.lib.config import config
-from gx.lib.console import info, set_verbosity, warning
+from gx.lib.console import set_verbosity, step, step_result, warning
 from gx.lib.git import check_git_repo, get_dry_run, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 from gx.lib.worktree import WorktreeInfo, list_worktrees, remove_worktree
@@ -51,7 +51,8 @@ class CleanCandidate:
 
 def _fetch() -> None:
     """Fetch from remote with prune to update tracking refs."""
-    git("fetch", "--prune").raise_on_error()
+    with step("Fetch with prune"):
+        git("fetch", "--prune").raise_on_error()
 
 
 def _stale_reason(
@@ -210,24 +211,26 @@ def _display_candidates(
     skipped: list[CleanCandidate],
 ) -> None:
     """Print the summary of items to be cleaned."""
-    if worktree_candidates:
-        info("Worktrees to remove:")
-        for c in worktree_candidates:
-            if c.worktree is None:
-                continue
-            info(f"  {c.worktree.path}  (branch: {c.branch}, {c.reason})")
-
-    if branch_candidates:
-        info("Branches to remove:")
-        for c in branch_candidates:
-            info(f"  {c.branch}  ({c.reason})")
+    total = len(worktree_candidates) + len(branch_candidates)
+    if total > 0:
+        subs: list[str] = []
+        if worktree_candidates:
+            subs.append("Worktrees:")
+            subs.extend(
+                f"  {c.worktree.path}  (branch: {c.branch}, {c.reason})"
+                for c in worktree_candidates
+                if c.worktree is not None
+            )
+        if branch_candidates:
+            subs.append("Branches:")
+            subs.extend(f"  {c.branch}  ({c.reason})" for c in branch_candidates)
+        step_result(f"Find {total} stale item{'s' if total != 1 else ''}", subs=subs)
 
     if skipped:
         warning("Skipped (dirty worktree, use --force):")
         for c in skipped:
-            if c.worktree is None:
-                continue
-            warning(f"  {c.worktree.path}  (branch: {c.branch}, {c.reason})")
+            if c.worktree is not None:
+                warning(f"  {c.worktree.path}  (branch: {c.branch}, {c.reason})", detail=True)
 
 
 def _remove_candidates(
@@ -283,8 +286,8 @@ def _print_removal_summary(wt_removed: int, br_removed: int) -> None:
         parts.append(f"{br_removed} branch{'es' if br_removed != 1 else ''}")
 
     if parts:
-        verb = "Would remove" if get_dry_run() else "Removed"
-        info(f"{verb} {' and '.join(parts)}")
+        verb = "Would remove" if get_dry_run() else "Remove"
+        step_result(f"{verb} {' and '.join(parts)}")
 
 
 FORCE_OPTION: bool = typer.Option(
@@ -350,7 +353,7 @@ def clean(
         if wt_skipped:
             _display_candidates([], [], wt_skipped)
         else:
-            info("Nothing to clean")
+            step_result("Nothing to clean")
         return
 
     _display_candidates(wt_candidates, br_candidates, wt_skipped)

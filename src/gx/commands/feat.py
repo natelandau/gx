@@ -6,7 +6,7 @@ import typer
 
 from gx.lib.branch import branch_exists, current_branch, default_branch
 from gx.lib.config import config, resolve_worktree_directory
-from gx.lib.console import error, info, set_verbosity, warning
+from gx.lib.console import debug, error, set_verbosity, step, warning
 from gx.lib.git import check_git_repo, git, repo_root, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 from gx.lib.worktree import create_worktree
@@ -74,7 +74,7 @@ def _normalize_name(name: str) -> str:
         raise typer.Exit(1)
 
     if name != original:
-        info(f'Normalized "{original}" to "{name}"')
+        debug(f'Normalized "{original}" to "{name}"')
 
     return name
 
@@ -100,7 +100,8 @@ def _prepare_feat_branch(name: str | None) -> tuple[str, str]:
 
     default = default_branch()
 
-    git("fetch", config.remote_name, default).raise_on_error()
+    with step(f"Fetch latest {default} from {config.remote_name}"):
+        git("fetch", config.remote_name, default).raise_on_error()
 
     if branch.startswith(f"{config.branch_prefix}/"):
         warning(f"Currently on {branch}")
@@ -118,19 +119,17 @@ def _create_branch(name: str | None) -> None:
     """Create a feature branch and switch to it."""
     feat_branch, default = _prepare_feat_branch(name)
 
-    result = git("checkout", "-b", feat_branch, default)
-    if not result.success:
-        if "would be overwritten" in result.stderr:
-            error(
-                "Checkout failed due to uncommitted changes that conflict with the target branch."
-            )
-            error("Commit or stash your changes first, then try again.")
-        else:
-            error(result.stderr or f"Failed to create branch {feat_branch}.")
-        raise typer.Exit(1)
-
-    info(f"Created branch {feat_branch} from {default}")
-    info(f"Switched to {feat_branch}")
+    with step(f"Create branch {feat_branch} from {default}"):
+        result = git("checkout", "-b", feat_branch, default)
+        if not result.success:
+            if "would be overwritten" in result.stderr:
+                error(
+                    "Checkout failed due to uncommitted changes that conflict with the target branch"
+                )
+                error("Commit or stash your changes first, then try again", detail=True)
+            else:
+                error(result.stderr or f"Failed to create branch {feat_branch}")
+            raise typer.Exit(1)
 
 
 def _create_worktree_branch(name: str | None) -> None:
@@ -149,14 +148,14 @@ def _create_worktree_branch(name: str | None) -> None:
             error(f"{worktree_base.name}/ is not in .gitignore. Add it before creating worktrees.")
             raise typer.Exit(1)
 
-    create_worktree(worktree_path, feat_branch, start_point=default).raise_on_error()
-
     try:
         display_path = worktree_path.relative_to(root)
     except ValueError:
         display_path = worktree_path
-    info(f"Created worktree at {display_path}")
-    info(f"Branch {feat_branch} from {default}")
+
+    with step(f"Create worktree at {display_path}") as s:
+        create_worktree(worktree_path, feat_branch, start_point=default).raise_on_error()
+        s.sub(f"Branch {feat_branch} from {default}")
 
 
 @app.callback(invoke_without_command=True)

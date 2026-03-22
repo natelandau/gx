@@ -61,14 +61,19 @@ src/gx/
 
 - Global `Console` instances and theme defined in `src/gx/lib/console.py`
 - Styles centralized in `GX_THEME` — never use inline Rich markup in commands
-- Import print helpers: `from gx.lib.console import info, debug, trace, warning, error`
-  - `info()` — always shown, green, stdout
-  - `debug()` — shown with `-v`, cyan, stdout
-  - `trace()` — shown with `-vv`, dim, stdout, prefixed `  git> `
-  - `warning()` — always shown, yellow, stderr
-  - `error()` — always shown, bold red, stderr
+- `GitHighlighter` auto-colors SHAs (yellow), commit types (cyan), scopes (blue), and PR refs (magenta)
+- Import print helpers: `from gx.lib.console import console, step, debug, trace, dryrun, warning, error`
+  - `step("message")` — context manager: spinner while running, `✓`/`✗` on completion, always shown
+    - Use `s.sub("text")` inside `with step(...) as s:` to queue sub-items (printed after marker with `│` pipe)
+    - Only use for operations that take time; for display-only output use `console.print()` with step styling
+  - `debug()` — shown with `-v`, cyan, `›` prefix, stdout
+  - `trace()` — shown with `-vv`, bright_black, `git>` prefix, stdout
+  - `dryrun()` — always shown, bold cyan, `[DRY RUN]` prefix, stdout
+  - `warning()` — always shown, yellow, `!` prefix, stderr. Use `detail=True` for subsequent lines (no marker, indented)
+  - `error()` — always shown, bold red, `✗` prefix, stderr. Use `detail=True` for subsequent lines (no marker, indented)
 - For tables/panels/direct Rich usage: `from gx.lib.console import console`
 - Verbosity set via `-v`/`-vv` flags on root command, wired through `set_verbosity()`
+- All user-supplied strings are escaped with `rich.markup.escape()` to prevent bracket injection
 
 ### Git Execution
 

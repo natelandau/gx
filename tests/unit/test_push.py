@@ -137,13 +137,13 @@ class TestPrintPushSummary:
 
         # Then
         captured = capsys.readouterr()
-        assert "Pushed 2 commit(s)" in captured.out
+        assert "Push 2 commit(s)" in captured.out
         assert "origin/main" in captured.out
         assert "add widget" in captured.out
         assert "edge case" in captured.out
 
-    def test_shows_already_up_to_date(self, mock_push_git, capsys):
-        """Verify 'Already up to date' when no commits to show."""
+    def test_returns_silently_when_no_commits(self, mock_push_git, capsys):
+        """Verify no output when there are no commits to show."""
         # Given
         mock_push_git.return_value = _ok(stdout="")
 
@@ -154,7 +154,7 @@ class TestPrintPushSummary:
 
         # Then
         captured = capsys.readouterr()
-        assert "Already up to date" in captured.out
+        assert captured.out == ""
 
     def test_first_push_uses_default_branch_range(self, mock_push_git, capsys):
         """Verify first push (no remote ref) uses default branch..HEAD range."""
@@ -434,5 +434,6 @@ class TestPushDryRun:
 
         # Then
         captured = capsys.readouterr()
-        assert "Would push 1 commit(s)" in captured.out
+        assert "Would push" in captured.out
+        assert "1 commit(s)" in captured.out
         assert mock_push_git.call_count == 3
