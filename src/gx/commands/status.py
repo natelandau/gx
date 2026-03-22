@@ -204,20 +204,20 @@ def status(
     branches: bool = BRANCHES_OPTION,  # noqa: FBT001
     show_all: bool = ALL_OPTION,  # noqa: FBT001
 ) -> None:
-    """Show a rich status dashboard for the current repository.
+    """Show file changes and branch status for the current repository.
 
-    Displays a two-panel view: a color-coded file tree for the current branch and a two-line-per-branch status display for all active branches.
+    Displays a two-panel view: a color-coded file tree for the current branch and a branch panel with ahead/behind counts, file metrics, and stash indicators.
 
     [bold]Panels:[/bold]
 
     - [bold]File tree[/bold] — changed files on the current branch, with git status codes
-    - [bold]Branch status[/bold] — all active branches with ahead/behind counts, file metrics, stashes
+    - [bold]Branches[/bold] — all active branches with ahead/behind, file counts, stashes
 
     [bold]Examples:[/bold]
 
-      gx status              Full dashboard (both panels)
+      gx status              Both panels
       gx status -F           File tree only
-      gx status -b           Branch table only
+      gx status -b           Branch panel only
       gx status -a           Include inactive branches
     """
     check_git_repo()
