@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gx.commands.log import parse_log_entries
+from gx.commands.log import LogEntry, RefsData, parse_log_entries, parse_refs, render_ref_banner
 
 
 class TestParseLogEntries:
@@ -60,3 +60,87 @@ class TestParseLogEntries:
         assert len(entries) == 1
         assert entries[0].refs == ""
         assert entries[0].body == ""
+
+
+class TestParseRefs:
+    """Tests for parsing raw ref decoration strings."""
+
+    def test_parses_head_branch_remote_and_tag(self):
+        """Verify grouping of HEAD branch, remotes, and tags from ref strings."""
+        # Given
+        entries = [
+            LogEntry(
+                sha="abc",
+                relative_time="",
+                subject="",
+                author="",
+                refs="HEAD -> main, origin/main, tag: v1.0",
+                body="",
+            ),
+            LogEntry(sha="def", relative_time="", subject="", author="", refs="", body=""),
+        ]
+        # When
+        result = parse_refs(entries)
+        # Then
+        assert result.head_branch == "main"
+        assert "origin/main" in result.remotes
+        assert "v1.0" in result.tags
+
+    def test_no_refs(self):
+        """Verify empty result when no commits have refs."""
+        # Given
+        entries = [
+            LogEntry(sha="abc", relative_time="", subject="", author="", refs="", body=""),
+        ]
+        # When
+        result = parse_refs(entries)
+        # Then
+        assert result.head_branch is None
+        assert result.remotes == []
+        assert result.tags == []
+        assert result.branches == []
+
+    def test_multiple_branches(self):
+        """Verify multiple local branches are captured."""
+        # Given
+        entries = [
+            LogEntry(
+                sha="abc",
+                relative_time="",
+                subject="",
+                author="",
+                refs="HEAD -> main, feat/test",
+                body="",
+            ),
+        ]
+        # When
+        result = parse_refs(entries)
+        # Then
+        assert result.head_branch == "main"
+        assert "feat/test" in result.branches
+
+
+class TestRenderRefBanner:
+    """Tests for rendering the ref banner line."""
+
+    def test_renders_head_with_arrow(self):
+        """Verify HEAD branch gets ← HEAD annotation."""
+        # Given
+        refs = RefsData(head_branch="main", remotes=["origin/main"], tags=["v1.0"], branches=[])
+        # When
+        banner = render_ref_banner(refs)
+        # Then
+        text = str(banner)
+        assert "main" in text
+        assert "← HEAD" in text
+        assert "origin/main" in text
+        assert "v1.0" in text
+
+    def test_returns_none_when_no_refs(self):
+        """Verify None when no refs to display."""
+        # Given
+        refs = RefsData(head_branch=None, remotes=[], tags=[], branches=[])
+        # When
+        banner = render_ref_banner(refs)
+        # Then
+        assert banner is None
