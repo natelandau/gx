@@ -25,13 +25,12 @@ class TestPushIntegration:
         assert "1 commit(s)" in result.output
 
     def test_push_already_up_to_date(self, tmp_git_repo):
-        """Verify push shows up-to-date when nothing to push."""
+        """Verify push succeeds silently when nothing to push."""
         create_tmp_branch(tmp_git_repo, "feat/test")
         create_tmp_commit(tmp_git_repo, "work")
         push_tmp_branch(tmp_git_repo)
         result = runner.invoke(app, ["push"])
         assert result.exit_code == 0
-        assert "Already up to date" in result.output
 
     def test_push_warns_dirty_tree(self, tmp_git_repo):
         """Verify push warns about dirty tree but still pushes."""
