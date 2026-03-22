@@ -2,6 +2,7 @@
 
 from typer.testing import CliRunner
 
+from gx import __version__
 from gx.cli import app
 from gx.lib.console import get_verbosity
 from gx.lib.git import GitResult, get_dry_run
@@ -47,6 +48,22 @@ class TestVerbosityFlag:
         """Verify -vv works after the subcommand name."""
         runner.invoke(app, ["pull", "-vv", "-n"])
         assert get_verbosity().value == 2
+
+
+class TestVersionFlag:
+    """Tests for --version/-V flag."""
+
+    def test_version_long_flag(self):
+        """Verify --version prints version and exits."""
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert result.output.strip() == f"gx {__version__}"
+
+    def test_version_short_flag(self):
+        """Verify -V prints version and exits."""
+        result = runner.invoke(app, ["-V"])
+        assert result.exit_code == 0
+        assert result.output.strip() == f"gx {__version__}"
 
 
 class TestHelpOutput:

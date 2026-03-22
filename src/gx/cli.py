@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 from typer import rich_utils
 
+from gx import __version__
 from gx.commands import clean, done, feat, pull, push, status
 from gx.lib.console import set_verbosity
 from gx.lib.git import check_git_installed, git
@@ -23,6 +24,13 @@ app.add_typer(done.app, name="done")
 app.add_typer(status.app, name="status")
 
 
+def _version_callback(value: bool) -> None:  # noqa: FBT001
+    """Print version and exit."""
+    if value:
+        typer.echo(f"gx {__version__}")
+        raise typer.Exit
+
+
 def _is_git_repo() -> bool:
     """Return True if the current directory is inside a git repository."""
     result = git("rev-parse", "--is-inside-work-tree")
@@ -33,6 +41,16 @@ def _is_git_repo() -> bool:
 def callback(
     ctx: typer.Context,
     verbose: int = VERBOSE_OPTION,
+    _version: bool | None = typer.Option(  # noqa: FBT001
+        None,
+        "--version",
+        "-V",
+        callback=_version_callback,
+        is_flag=True,
+        expose_value=False,
+        is_eager=True,
+        help="Show version and exit.",
+    ),
 ) -> None:
     """Streamline your git workflow.
 
