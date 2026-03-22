@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Environment files
+.env
+
+.dev/
+.cache/
+tmp/
+.claude/settings.local.json
+.claude/worktrees/
+.worktrees/
+_site/
+docs/plans/
+docs/superpowers/
+.superpowers/
+reference/

@@ -1,0 +1,8 @@
+[default]
+    locale = "en-us"
+
+    [default.extend-words]
+        criticals = "criticals"
+
+[files]
+    extend-exclude = ["*_cache", "CHANGELOG.md"]
