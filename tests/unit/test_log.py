@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from io import StringIO
 
+import click
+import pytest
+import typer
 from rich.console import Console
 
 from gx.commands.log import (
@@ -15,7 +18,12 @@ from gx.commands.log import (
     render_log_grid,
     render_ref_banner,
 )
+from gx.commands.log import (
+    log as log_callback,
+)
 from gx.lib.console import GX_THEME
+
+from .conftest import _ok
 
 
 class TestParseLogEntries:
@@ -269,3 +277,42 @@ class TestColorizeGraphLine:
         text = colorize_graph_line("")
         # Then
         assert text.plain == ""
+
+
+class TestLogCallback:
+    """Tests for the log command callback behavior."""
+
+    def test_default_invocation(self, mock_log_check_git_repo, mock_log_git, capsys):
+        """Verify default invocation calls git log with default format."""
+        # Given
+        mock_log_git.return_value = _ok(
+            stdout="\x019c96da2\x003 days ago\x00bump release\x00Nate\x00HEAD -> main"
+        )
+        # When
+        ctx = typer.Context(click.Command("log"))
+        log_callback(ctx=ctx, count=15, full=False, graph=False, verbose=0, dry_run=False)
+        # Then
+        mock_log_git.assert_called_once()
+        args = mock_log_git.call_args[0]
+        assert "log" in args
+        assert "--graph" not in args
+
+    def test_graph_invocation(self, mock_log_check_git_repo, mock_log_git, capsys):
+        """Verify --graph passes --graph flag to git."""
+        # Given
+        mock_log_git.return_value = _ok(stdout="* 9c96da2 3 days ago <Nate> bump release")
+        # When
+        ctx = typer.Context(click.Command("log"))
+        log_callback(ctx=ctx, count=15, full=False, graph=True, verbose=0, dry_run=False)
+        # Then
+        args = mock_log_git.call_args[0]
+        assert "--graph" in args
+
+    def test_full_and_graph_mutex(self, mock_log_check_git_repo, capsys):
+        """Verify error when both --full and --graph are passed."""
+        # When/Then
+        ctx = typer.Context(click.Command("log"))
+        with pytest.raises(typer.Exit):
+            log_callback(ctx=ctx, count=15, full=True, graph=True, verbose=0, dry_run=False)
+        captured = capsys.readouterr()
+        assert "mutually exclusive" in captured.err.lower()
