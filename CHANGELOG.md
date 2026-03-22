@@ -1,3 +1,9 @@
+## v0.4.0 (2026-03-22)
+
+### Feat
+
+- **info**: add repository dashboard command (#5)
+
 ## v0.3.0 (2026-03-22)
 
 ### Feat
