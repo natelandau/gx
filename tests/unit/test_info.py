@@ -98,8 +98,7 @@ class TestGithubPanel:
             patch("gx.commands.info.gh_available", return_value=True),
             patch("gx.commands.info.is_github_remote", return_value=True),
             patch("gx.commands.info.gh", return_value=gh_success),
-            patch("gx.commands.info._gh_pr_count", return_value=2),
-            patch("gx.commands.info._gh_issue_count", return_value=5),
+            patch("gx.commands.info._gh_open_count", side_effect=lambda r: 2 if r == "pr" else 5),
         ):
             result = _github_panel("https://github.com/user/repo")
         assert isinstance(result, Panel)
@@ -123,8 +122,7 @@ class TestGithubPanel:
             patch("gx.commands.info.gh_available", return_value=True),
             patch("gx.commands.info.is_github_remote", return_value=True),
             patch("gx.commands.info.gh", return_value=gh_success),
-            patch("gx.commands.info._gh_pr_count", return_value=0),
-            patch("gx.commands.info._gh_issue_count", return_value=0),
+            patch("gx.commands.info._gh_open_count", return_value=0),
         ):
             result = _github_panel("https://github.com/user/repo")
         assert isinstance(result, Panel)

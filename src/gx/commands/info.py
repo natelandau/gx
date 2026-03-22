@@ -45,31 +45,21 @@ def _remote_to_url(remote: str) -> str | None:
         An HTTPS URL string, or None if the format is not recognized.
     """
     remote = remote.strip()
-
-    # Strip .git suffix early so all branches can assume clean path
     remote = remote.removesuffix(".git")
 
-    # Passthrough for https:// and http://
     if remote.startswith(("https://", "http://")):
         return remote
 
-    # ssh:// protocol — strip user@, strip optional :port
     if remote.startswith("ssh://"):
-        # ssh://[user@]host[:port]/path
         without_scheme = remote[len("ssh://") :]
-        # Strip user@ prefix
         if "@" in without_scheme:
             without_scheme = without_scheme.split("@", 1)[1]
-        # Strip :port if present before the path
         without_scheme = re.sub(r"^([^/:]+):\d+(/.*)", r"\1\2", without_scheme)
         return f"https://{without_scheme}"
 
-    # git@host:path (SCP-style)
     m = re.match(r"^git@([^:]+):(.+)$", remote)
     if m:
-        host = m.group(1)
-        path = m.group(2)
-        return f"https://{host}/{path}"
+        return f"https://{m.group(1)}/{m.group(2)}"
 
     return None
 
@@ -79,9 +69,6 @@ def _human_size(size_bytes: int) -> str:
 
     Args:
         size_bytes: Number of bytes to format.
-
-    Returns:
-        A formatted string such as "1.5 MB" or "512 B".
     """
     value: float = float(size_bytes)
     for unit in ("B", "KB", "MB", "GB"):
@@ -96,25 +83,15 @@ def _git_dir_size(root: Path) -> str:
 
     Args:
         root: The repository root path.
-
-    Returns:
-        A human-readable size string, or "—" if .git is not found.
     """
-    git_dir = root / ".git"
-    if not git_dir.exists():
+    # Use git's own mechanism to find the common git dir (handles worktrees)
+    result = git("rev-parse", "--git-common-dir")
+    if not result.success:
         return "\u2014"
 
-    # In worktrees, .git is a file pointing to the real git dir
-    if git_dir.is_file():
-        content = git_dir.read_text().strip()
-        if content.startswith("gitdir: "):
-            git_dir = Path(content.removeprefix("gitdir: "))
-            if not git_dir.is_absolute():
-                git_dir = (root / git_dir).resolve()
-            # Walk up to the common .git directory (past worktrees/<name>)
-            if "worktrees" in git_dir.parts:
-                idx = git_dir.parts.index("worktrees")
-                git_dir = Path(*git_dir.parts[:idx])
+    git_dir = Path(result.stdout)
+    if not git_dir.is_absolute():
+        git_dir = (root / git_dir).resolve()
 
     if not git_dir.is_dir():
         return "\u2014"
@@ -130,9 +107,6 @@ def _last_fetch_time(root: Path) -> str:
 
     Args:
         root: The repository root path.
-
-    Returns:
-        A string like "2h ago" or "3d ago", or "Never" if FETCH_HEAD does not exist.
     """
     fetch_head = root / ".git" / "FETCH_HEAD"
     if not fetch_head.exists():
@@ -156,9 +130,6 @@ def _submodule_count(root: Path) -> int:
 
     Args:
         root: The repository root path.
-
-    Returns:
-        The number of submodule entries, or 0 if .gitmodules does not exist.
     """
     gitmodules = root / ".gitmodules"
     if not gitmodules.exists():
@@ -168,89 +139,77 @@ def _submodule_count(root: Path) -> int:
     return content.count("[submodule ")
 
 
-def _repo_panel() -> Panel:
-    """Build a Rich Panel showing repository metadata as a key-value grid.
-
-    Collects repo path, remote, URL, HEAD, latest tag, commit count, contributor count,
-    repo age, disk size, last fetch time, and submodule count.
+def _resolve_remote() -> tuple[str, str]:
+    """Resolve the primary remote name and its URL.
 
     Returns:
-        A Rich Panel ready for console output.
+        A (remote_name, remote_url) tuple. Values are empty strings on failure.
     """
-    root = repo_root()
+    name_result = git("remote")
+    if not name_result.success or not name_result.stdout:
+        return ("", "")
 
-    # Path
-    path_val = str(root)
+    name = name_result.stdout.splitlines()[0]
+    url_result = git("remote", "get-url", name)
+    url = url_result.stdout.strip() if url_result.success and url_result.stdout else ""
+    return (name, url)
 
-    # Remote name
-    remote_result = git("remote")
-    remote_name = (
-        remote_result.stdout.splitlines()[0]
-        if remote_result.success and remote_result.stdout
-        else "None"
+
+def _repo_panel(root: Path, remote_name: str, remote_url: str) -> Panel:
+    """Build a Rich Panel showing repository metadata as a key-value grid.
+
+    Args:
+        root: The repository root path.
+        remote_name: The primary remote name (e.g., "origin").
+        remote_url: The raw remote URL string.
+    """
+    url_text: str | Text = "\u2014"
+    if remote_url:
+        url = _remote_to_url(remote_url)
+        url_text = Text(url, style=f"link {url}") if url else remote_url
+
+    head_result = git("rev-parse", "--short", "HEAD")
+    head_val: str | Text = (
+        Text(head_result.stdout, style="log_sha")
+        if head_result.success and head_result.stdout
+        else "\u2014"
     )
 
-    # Remote URL
-    url_text: str | Text = "\u2014"
-    if remote_name and remote_name != "None":
-        url_result = git("remote", "get-url", remote_name)
-        if url_result.success and url_result.stdout:
-            url = _remote_to_url(url_result.stdout.strip())
-            url_text = Text(url, style=f"link {url}") if url else url_result.stdout.strip()
-
-    # HEAD commit SHA
-    head_result = git("rev-parse", "--short", "HEAD")
-    head_val: str | Text
-    if head_result.success and head_result.stdout:
-        head_val = Text(head_result.stdout, style="log_sha")
-    else:
-        head_val = "\u2014"
-
-    # Latest tag
     tag_result = git("describe", "--tags", "--abbrev=0")
-    tag_val: str | Text
-    if tag_result.success and tag_result.stdout:
-        tag_val = Text(tag_result.stdout, style="log_ref_tag")
-    else:
-        tag_val = "\u2014"
+    tag_val: str | Text = (
+        Text(tag_result.stdout, style="log_ref_tag")
+        if tag_result.success and tag_result.stdout
+        else "\u2014"
+    )
 
-    # Total commit count
     commit_result = git("rev-list", "--count", "HEAD")
     commit_val = (
         commit_result.stdout if commit_result.success and commit_result.stdout else "\u2014"
     )
 
-    # Contributor count
     contrib_result = git("shortlog", "-sn", "--no-merges", "HEAD")
-    if contrib_result.success and contrib_result.stdout:
-        contrib_val = str(len(contrib_result.stdout.splitlines()))
-    else:
-        contrib_val = "\u2014"
+    contrib_val = (
+        str(len(contrib_result.stdout.splitlines()))
+        if contrib_result.success and contrib_result.stdout
+        else "\u2014"
+    )
 
-    # Repo age (first commit date)
     age_result = git("log", "--reverse", "--format=%ar", "--max-count=1")
     age_val = age_result.stdout if age_result.success and age_result.stdout else "\u2014"
 
-    # Disk size
-    size_val = _git_dir_size(root)
-
-    # Last fetch
-    fetch_val = _last_fetch_time(root)
-
-    # Submodule count
     sub_count = _submodule_count(root)
 
-    rows: list[tuple[str, str | Text]] = [
-        ("Path", path_val),
-        ("Remote", remote_name),
+    rows: list[tuple[str | Text, str | Text]] = [
+        ("Path", str(root)),
+        ("Remote", remote_name or "None"),
         ("URL", url_text),
         ("HEAD", head_val),
         ("Latest tag", tag_val),
         ("Commits", commit_val),
         ("Contributors", contrib_val),
         ("Repo age", age_val),
-        ("Disk size", size_val),
-        ("Last fetch", fetch_val),
+        ("Disk size", _git_dir_size(root)),
+        ("Last fetch", _last_fetch_time(root)),
     ]
     if sub_count:
         rows.append(("Submodules", str(sub_count)))
@@ -258,33 +217,18 @@ def _repo_panel() -> Panel:
     return Panel(kv_grid(rows), title="Repository", border_style="dim")
 
 
-def _gh_pr_count() -> int | None:
-    """Fetch the count of open pull requests via the gh CLI.
+def _gh_open_count(resource: str) -> int | None:
+    """Fetch the count of open items (PRs or issues) via the gh CLI.
 
-    Returns:
-        The number of open PRs, or None if the command fails or gh is unavailable.
+    Args:
+        resource: The gh resource type — "pr" or "issue".
     """
-    result = gh("pr", "list", "--state", "open", "--json", "number", "--limit", "1000")
+    result = gh(resource, "list", "--state", "open", "--json", "number", "--jq", "length")
     if not result.success:
         return None
     try:
-        return len(json.loads(result.stdout))
-    except (json.JSONDecodeError, TypeError):
-        return None
-
-
-def _gh_issue_count() -> int | None:
-    """Fetch the count of open issues via the gh CLI.
-
-    Returns:
-        The number of open issues, or None if the command fails or gh is unavailable.
-    """
-    result = gh("issue", "list", "--state", "open", "--json", "number", "--limit", "1000")
-    if not result.success:
-        return None
-    try:
-        return len(json.loads(result.stdout))
-    except (json.JSONDecodeError, TypeError):
+        return int(result.stdout)
+    except (ValueError, TypeError):
         return None
 
 
@@ -297,13 +241,8 @@ def _github_panel(remote_url: str) -> Panel | None:
 
     Args:
         remote_url: The git remote URL to check and query against.
-
-    Returns:
-        A Rich Panel ready for console output, or None if GitHub info is unavailable.
     """
-    if not gh_available():
-        return None
-    if not is_github_remote(remote_url):
+    if not gh_available() or not is_github_remote(remote_url):
         return None
 
     result = gh(
@@ -325,28 +264,21 @@ def _github_panel(remote_url: str) -> Panel | None:
     stars = str(data.get("stargazerCount", 0))
 
     is_fork = data.get("isFork", False)
+    fork_val: str | Text = "No"
     if is_fork:
         parent = data.get("parent") or {}
         parent_name = parent.get("nameWithOwner", "unknown")
-        fork_val: str | Text = Text(f"Yes \u2014 {parent_name}", style="dim")
-    else:
-        fork_val = "No"
+        fork_val = Text(f"Yes \u2014 {parent_name}", style="dim")
 
-    pr_count = _gh_pr_count()
-    pr_text = Text()
-    if pr_count is None:
-        pr_text.append("\u2014")
-    else:
-        pr_text.append(str(pr_count), style="ahead")
+    pr_count = _gh_open_count("pr")
+    pr_text = Text(str(pr_count), style="ahead") if pr_count is not None else Text("\u2014")
 
-    issue_count = _gh_issue_count()
-    issue_text = Text()
-    if issue_count is None:
-        issue_text.append("\u2014")
-    else:
-        issue_text.append(str(issue_count), style="unstaged")
+    issue_count = _gh_open_count("issue")
+    issue_text = (
+        Text(str(issue_count), style="unstaged") if issue_count is not None else Text("\u2014")
+    )
 
-    rows: list[tuple[str, str | Text]] = [
+    rows: list[tuple[str | Text, str | Text]] = [
         ("Description", description),
         ("Visibility", visibility),
         ("Stars", stars),
@@ -366,39 +298,25 @@ def _github_panel(remote_url: str) -> Panel | None:
 def _stash_panel(stashes: dict[str, int]) -> Panel | None:
     """Build a Rich Panel showing stash counts per branch.
 
-    Returns None when the stash dict is empty. Shows the total stash count in
-    the header row followed by a per-branch breakdown sorted alphabetically.
-
     Args:
         stashes: Mapping of branch name to stash count.
-
-    Returns:
-        A Rich Panel ready for console output, or None if there are no stashes.
     """
     if not stashes:
         return None
 
     total = sum(stashes.values())
-    grid = Table.grid(padding=(0, 2))
-    grid.add_column(style="dim_label", justify="right")
-    grid.add_column(style="value")
+    rows: list[tuple[str | Text, str | Text]] = [("Total", str(total))]
+    rows.extend(
+        (Text(branch, style="stash_branch"), str(stashes[branch])) for branch in sorted(stashes)
+    )
 
-    grid.add_row("Total", str(total))
-    for branch in sorted(stashes):
-        branch_text = Text(branch, style="stash_branch")
-        grid.add_row(branch_text, str(stashes[branch]))
-
-    return Panel(grid, title="Stashes", border_style="dim")
+    return Panel(kv_grid(rows), title="Stashes", border_style="dim")
 
 
 def _log_panel() -> Panel | None:
     """Build a Rich Panel showing the 5 most recent commits.
 
-    Each row shows the short SHA, commit subject, author name, and relative
-    time. Returns None when the git log command fails or produces no output.
-
-    Returns:
-        A Rich Panel ready for console output, or None if no commits are available.
+    Each row shows the short SHA, commit subject, author name, and relative time.
     """
     result = git("log", f"--format={_LOG_FORMAT}", "-5")
     if not result.success or not result.stdout:
@@ -423,14 +341,8 @@ def _log_panel() -> Panel | None:
 def _worktree_panel(root: Path) -> Panel | None:
     """Build a Rich Panel listing non-main worktrees with their paths.
 
-    Shows branch name and path relative to the repo root for each non-main
-    worktree. Returns None when no non-main worktrees exist.
-
     Args:
         root: The repository root path, used to compute relative paths.
-
-    Returns:
-        A Rich Panel ready for console output, or None if no extra worktrees exist.
     """
     worktrees = [wt for wt in list_worktrees() if not wt.is_main]
     if not worktrees:
@@ -451,31 +363,26 @@ def _worktree_panel(root: Path) -> Panel | None:
     return Panel(grid, title="Worktrees", border_style="dim")
 
 
-def _compose_dashboard(panels: dict[str, Panel | None]) -> None:
-    """Arrange named panels in a responsive grid and print to the console.
+def _compose_dashboard(
+    *,
+    repo: Panel | None = None,
+    github: Panel | None = None,
+    branches: Panel | None = None,
+    working_tree: Panel | None = None,
+    stashes: Panel | None = None,
+    log: Panel | None = None,
+    worktrees: Panel | None = None,
+) -> None:
+    """Arrange panels in a responsive grid and print to the console.
 
     Use a wide two/three-column grid layout when the terminal is at least
     WIDE_THRESHOLD characters wide, otherwise stack all panels vertically.
-
-    Args:
-        panels: Mapping of panel names to Rich Panel objects or None. None entries
-            are excluded from the output.
     """
-    width = console.width
-    wide = width >= WIDE_THRESHOLD
-
-    repo = panels.get("repo")
-    github = panels.get("github")
-    branches = panels.get("branches")
-    working_tree = panels.get("working_tree")
-    stash = panels.get("stashes")
-    log = panels.get("log")
-    worktrees = panels.get("worktrees")
+    wide = console.width >= WIDE_THRESHOLD
 
     if wide:
         parts: list[Table | Panel] = []
 
-        # Row 1: Repository | GitHub
         if github:
             row1 = Table.grid(padding=(0, 1))
             row1.add_column(ratio=1)
@@ -485,12 +392,10 @@ def _compose_dashboard(panels: dict[str, Panel | None]) -> None:
         elif repo:
             parts.append(repo)
 
-        # Row 2: Branches (full width)
         if branches:
             parts.append(branches)
 
-        # Row 3: Working Tree | Stashes | Worktrees (3-up, only non-None panels)
-        row3_panels = [p for p in (working_tree, stash, worktrees) if p is not None]
+        row3_panels = [p for p in (working_tree, stashes, worktrees) if p is not None]
         if row3_panels:
             row3 = Table.grid(padding=(0, 1))
             for _ in row3_panels:
@@ -498,14 +403,13 @@ def _compose_dashboard(panels: dict[str, Panel | None]) -> None:
             row3.add_row(*row3_panels)
             parts.append(row3)
 
-        # Row 4: Recent Commits (full width)
         if log:
             parts.append(log)
 
         if parts:
             console.print(Group(*parts))
     else:
-        all_panels = [repo, github, branches, working_tree, stash, log, worktrees]
+        all_panels = [repo, github, branches, working_tree, stashes, log, worktrees]
         visible = [p for p in all_panels if p is not None]
         if visible:
             console.print(Group(*visible))
@@ -529,36 +433,33 @@ def info(
     check_git_repo()
 
     root = repo_root()
+    remote_name, remote_url = _resolve_remote()
 
-    # Gather all panels
-    repo = _repo_panel()
+    repo_p = _repo_panel(root, remote_name, remote_url)
+    github_p = _github_panel(remote_url)
 
-    remote_result = git("remote", "get-url", "origin")
-    remote_url = remote_result.stdout if remote_result.success else ""
-    github = _github_panel(remote_url)
-
-    stashes = stash_counts()
+    stash_data = stash_counts()
     porcelain_result = git("status", "--porcelain")
     porcelain = porcelain_result.stdout if porcelain_result.success else ""
     staged, modified, unmerged, untracked = count_file_statuses(porcelain)
 
-    rows = collect_branch_data(show_all=True, current_porcelain=porcelain)
-    branches = render_branch_panel(rows)
-    working_tree = render_working_tree_panel(
-        staged=staged, modified=modified, unmerged=unmerged, untracked=untracked
+    branch_rows = collect_branch_data(
+        show_all=True,
+        current_porcelain=porcelain,
+        stashes=stash_data,
     )
-    stash = _stash_panel(stashes)
-    log = _log_panel()
-    worktrees_panel = _worktree_panel(root)
 
     _compose_dashboard(
-        {
-            "repo": repo,
-            "github": github,
-            "branches": branches,
-            "working_tree": working_tree,
-            "stashes": stash,
-            "log": log,
-            "worktrees": worktrees_panel,
-        }
+        repo=repo_p,
+        github=github_p,
+        branches=render_branch_panel(branch_rows),
+        working_tree=render_working_tree_panel(
+            staged=staged,
+            modified=modified,
+            unmerged=unmerged,
+            untracked=untracked,
+        ),
+        stashes=_stash_panel(stash_data),
+        log=_log_panel(),
+        worktrees=_worktree_panel(root),
     )

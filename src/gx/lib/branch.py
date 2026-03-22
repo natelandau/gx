@@ -405,7 +405,12 @@ def branch_file_statuses(*, is_current: bool, wt_path: Path | None) -> tuple[int
     return (0, 0, 0, 0)
 
 
-def collect_branch_data(*, show_all: bool, current_porcelain: str | None = None) -> list[BranchRow]:
+def collect_branch_data(
+    *,
+    show_all: bool,
+    current_porcelain: str | None = None,
+    stashes: dict[str, int] | None = None,
+) -> list[BranchRow]:
     """Collect metrics for all local branches.
 
     Gathers ahead/behind counts relative to the default branch and any remote
@@ -416,6 +421,7 @@ def collect_branch_data(*, show_all: bool, current_porcelain: str | None = None)
         show_all: When True, include branches with no activity.
         current_porcelain: Pre-fetched porcelain output for the current branch,
             to avoid a redundant git status call when the caller already has it.
+        stashes: Pre-fetched stash counts per branch. If None, fetched internally.
 
     Returns:
         A list of BranchRow instances sorted with the current branch first.
@@ -425,7 +431,8 @@ def collect_branch_data(*, show_all: bool, current_porcelain: str | None = None)
     cur = current_branch()
     target = default_branch()
     branches = all_local_branches()
-    stashes = stash_counts()
+    if stashes is None:
+        stashes = stash_counts()
     worktrees = list_worktrees()
 
     wt_map: dict[str, Path] = {}

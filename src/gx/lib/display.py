@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from gx.lib.branch import BranchRow
 
 
-def kv_grid(rows: list[tuple[str, str | Text]]) -> Table:
+def kv_grid(rows: list[tuple[str | Text, str | Text]]) -> Table:
     """Build a right-aligned label / left-aligned value grid for info panels.
 
     Args:
@@ -122,7 +122,6 @@ def render_branch_panel(rows: list[BranchRow]) -> Panel | None:
     grid.add_column()  # stash
 
     for row in rows:
-        # Column 1: marker + branch name
         name_text = Text()
         if row.is_current:
             name_text.append("* ", style="branch_current")
@@ -132,21 +131,17 @@ def render_branch_panel(rows: list[BranchRow]) -> Panel | None:
         if row.is_worktree:
             name_text.append(" [wt]", style="dim")
 
-        # Column 2: tracking ref
-        ref_text = _tracking_ref_text(row)
-
-        # Column 3: ahead/behind arrows
-        ab_text = _ahead_behind_text(row)
-
-        # Column 4: file count sigils
-        files_text = _file_counts_text(row)
-
-        # Column 5: stash indicator
         stash_text = Text()
         if row.stashes:
             stash_text.append(f"≡{row.stashes}", style="stash_branch")
 
-        grid.add_row(name_text, ref_text, ab_text, files_text, stash_text)
+        grid.add_row(
+            name_text,
+            _tracking_ref_text(row),
+            _ahead_behind_text(row),
+            _file_counts_text(row),
+            stash_text,
+        )
 
     return Panel(grid, title="Branches", border_style="dim")
 
