@@ -129,6 +129,8 @@ def render_branch_panel(rows: list[BranchRow]) -> Panel | None:
         else:
             name_text.append("  ")
         name_text.append(row.branch, style="branch_current" if row.is_current else "default")
+        if row.is_worktree:
+            name_text.append(" [wt]", style="dim")
 
         # Column 2: tracking ref
         ref_text = _tracking_ref_text(row)
