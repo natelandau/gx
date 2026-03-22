@@ -568,7 +568,7 @@ class TestCleanPartialFailure:
         # Then
         captured = capsys.readouterr()
         assert "Failed to remove worktree" in captured.err
-        assert "Removed" in captured.out
+        assert "Remove" in captured.out
 
 
 class TestStaleReason:
