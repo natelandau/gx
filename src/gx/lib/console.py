@@ -4,24 +4,33 @@ Provides a shared Rich Console with centralized theme styling and verbosity-awar
 print functions. Commands import helpers instead of using Rich markup directly.
 
 Usage in commands:
-    from gx.lib.console import console, info, debug, trace, dryrun, warning, error
+    from gx.lib.console import console, step, debug, trace, dryrun, warning, error
 
-    info("Pushing to origin/main...")       # Always shown (green)
-    debug("Resolved remote: origin")        # Shown with -v (cyan)
-    trace("push origin main")               # Shown with -vv, prefixed '  git> ' (dim)
-    dryrun("git push origin main")          # Always shown, bold cyan, '[DRY RUN]' prefix
-    warning("Branch has no upstream")       # Always shown on stderr (yellow)
-    error("Failed to push")                 # Always shown on stderr (bold red)
-    console.print(table)                    # Direct Rich output (tables, panels, etc.)
+    with step("Pushing to origin/main..."):   # Spinner, then checkmark/X
+        do_work()
+    debug("Resolved remote: origin")          # Shown with -v (cyan)
+    trace("push origin main")                 # Shown with -vv, prefixed 'git>' (dim)
+    dryrun("git push origin main")            # Always shown, bold cyan, '[DRY RUN]' prefix
+    warning("Branch has no upstream")         # Always shown on stderr (yellow)
+    error("Failed to push")                   # Always shown on stderr (bold red)
+    console.print(table)                      # Direct Rich output (tables, panels, etc.)
 """
 
-from typing import Any, ClassVar
+from __future__ import annotations
+
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from rich.console import Console
 from rich.highlighter import RegexHighlighter
+from rich.markup import escape
 from rich.theme import Theme
 
 from gx.constants import Verbosity
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 class GitHighlighter(RegexHighlighter):
@@ -38,12 +47,6 @@ class GitHighlighter(RegexHighlighter):
 
 GX_THEME = Theme(
     {
-        "info": "green",
-        "debug": "cyan",
-        "dryrun": "bold cyan",
-        "trace": "dim",
-        "warning": "yellow",
-        "error": "bold red",
         "staged": "green",
         "unstaged": "red",
         "untracked": "cyan",
@@ -106,33 +109,76 @@ def get_verbosity() -> Verbosity:
     return _verbosity
 
 
+@dataclass
+class Step:
+    """Collect sub-items during a step for printing after completion."""
+
+    message: str
+    _subs: list[str] = field(default_factory=list, init=False)
+
+    def sub(self, text: str) -> None:
+        """Queue a sub-item to print after the step completes."""
+        self._subs.append(text)
+
+
+@contextmanager
+def step(message: str) -> Generator[Step]:
+    """Show a spinner while the block runs, then a completion marker.
+
+    On success, prints a green checkmark followed by the message. On any exception
+    (including typer.Exit), prints a red X then re-raises. Sub-items queued
+    via Step.sub() are printed after the marker with a gray pipe prefix.
+    """
+    s = Step(message)
+    try:
+        with console.status(
+            f"[step.message]{escape(message)}...[/]",
+            spinner="dots",
+            spinner_style="step.spinner",
+        ):
+            yield s
+        console.print(f"[step.success]✓[/] [step.message]{escape(message)}[/]")
+    except BaseException:
+        console.print(f"[step.fail]✗[/] [step.message]{escape(message)}[/]")
+        raise
+    finally:
+        for sub_text in s._subs:  # noqa: SLF001
+            console.print(f"  [sub.pipe]│[/] {escape(sub_text)}")
+
+
 def info(message: str, **kwargs: Any) -> None:
-    """Print info-level output to stdout. Always shown."""
-    console.print(message, style="info", **kwargs)
+    """Print info-level output to stdout. Deprecated: use step() instead."""
+    console.print(f"[step.success]✓[/] [step.message]{escape(message)}[/]", **kwargs)
 
 
 def debug(message: str, **kwargs: Any) -> None:
     """Print debug-level output to stdout. Shown with -v or higher."""
     if _verbosity >= Verbosity.DEBUG:
-        console.print(message, style="debug", **kwargs)
+        console.print(f"  [debug.marker]›[/] [debug.message]{escape(message)}[/]", **kwargs)  # noqa: RUF001
 
 
 def trace(message: str, **kwargs: Any) -> None:
-    """Print trace-level git output to stdout. Shown with -vv, prefixed with '  git> '."""
+    """Print trace-level git output to stdout. Shown with -vv."""
     if _verbosity >= Verbosity.TRACE:
-        console.print(f"  git> {message}", style="trace", **kwargs)
+        console.print(f"    [trace.marker]git>[/] [trace.message]{escape(message)}[/]", **kwargs)
 
 
 def dryrun(message: str, **kwargs: Any) -> None:
-    """Print a dry-run notice to stdout. Always shown regardless of verbosity."""
-    console.print(f"[DRY RUN] {message}", style="dryrun", **kwargs)
+    """Print a dry-run notice to stdout."""
+    console.print(f"[dryrun.marker]\\[DRY RUN][/] [dryrun.message]{escape(message)}[/]", **kwargs)
 
 
-def warning(message: str, **kwargs: Any) -> None:
-    """Print warning output to stderr. Always shown."""
-    err_console.print(message, style="warning", **kwargs)
+def warning(message: str, *, detail: bool = False, **kwargs: Any) -> None:
+    """Print warning output to stderr. First call bold, detail=True for subsequent lines."""
+    style = "warning.detail" if detail else "warning.message"
+    marker = "" if detail else "[warning.marker]![/] "
+    prefix = "  " if detail else ""
+    err_console.print(f"{marker}{prefix}[{style}]{escape(message)}[/]", **kwargs)
 
 
-def error(message: str, **kwargs: Any) -> None:
-    """Print error output to stderr. Always shown."""
-    err_console.print(message, style="error", **kwargs)
+def error(message: str, *, detail: bool = False, **kwargs: Any) -> None:
+    """Print error output to stderr. First call bold, detail=True for subsequent lines."""
+    style = "error.detail" if detail else "error.message"
+    marker = "" if detail else "[error.marker]✗[/] "
+    prefix = "  " if detail else ""
+    err_console.print(f"{marker}{prefix}[{style}]{escape(message)}[/]", **kwargs)
