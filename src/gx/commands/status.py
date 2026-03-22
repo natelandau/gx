@@ -417,10 +417,9 @@ def _render_branch_status(rows: list[BranchRow]) -> Text | None:
     for i, row in enumerate(rows):
         if row.is_current:
             output.append("► ", style="branch_marker")
-            output.append(row.branch, style="branch_current")
         else:
             output.append("  ")
-            output.append(row.branch)
+        output.append(row.branch, style="branch_current")
 
         output.append(f" → {row.target}", style="branch_target")
 
