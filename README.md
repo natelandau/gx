@@ -8,7 +8,7 @@ A CLI that wraps common git commands with sensible defaults, safety guards, and 
 - Push with dirty-tree warnings and default-branch confirmation
 - Pull with automatic stash/unstash and rebase
 - Batch cleanup of merged, gone, and empty branches
-- Rich status dashboard showing all branches at a glance
+- Rich repository dashboard with metadata, branches, GitHub info, and more
 - Dry-run mode (`-n`) on every command
 
 ## Installation
@@ -35,11 +35,22 @@ gx done                  # checkout main, pull, delete feat/1
 
 ## Commands
 
-Every command supports `-h` for help. All commands except `status` also support `-v`/`-vv` for verbosity and `-n` for dry-run.
+Every command supports `-h` for help. All commands except `info` and `status` also support `-v`/`-vv` for verbosity and `-n` for dry-run.
+
+### `gx info`
+
+Display a rich repository dashboard with panels for metadata, branches, working tree state, recent commits, and more. Running `gx` with no arguments inside a repo shows this dashboard automatically.
+
+When the `gh` CLI is installed and the remote is GitHub, an additional panel shows repo description, visibility, stars, and open PR/issue counts. Optional panels (GitHub, stashes, worktrees) appear only when relevant.
+
+```sh
+gx info                  # full dashboard
+gx                       # same as gx info
+```
 
 ### `gx status`
 
-Display a two-panel dashboard: a color-coded file tree of uncommitted changes and a table of all active branches with ahead/behind counts, file metrics, and stash counts. Running `gx` with no arguments inside a repo shows this dashboard automatically.
+Display a two-panel view: a color-coded file tree of uncommitted changes and a table of all active branches with ahead/behind counts, file metrics, and stash counts.
 
 ```sh
 gx status                # full dashboard

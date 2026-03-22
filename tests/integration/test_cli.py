@@ -69,25 +69,23 @@ class TestVersionFlag:
 class TestHelpOutput:
     """Tests for help text output."""
 
-    def test_bare_gx_in_repo_runs_status(self, mocker):
-        """Verify bare gx invocation inside a repo runs status instead of help."""
-        mocker.patch("gx.commands.status.check_git_repo", autospec=True)
+    def test_bare_gx_in_repo_runs_info(self, mocker):
+        """Verify bare gx invocation inside a repo runs info instead of help."""
+        mocker.patch("gx.commands.info.check_git_repo", autospec=True)
         mocker.patch(
-            "gx.commands.status.git",
-            return_value=GitResult(command="git status", returncode=0, stdout="", stderr=""),
+            "gx.commands.info.git",
+            return_value=GitResult(command="git", returncode=0, stdout="test", stderr=""),
         )
-        mocker.patch("gx.commands.status.current_branch", return_value="main")
-        mocker.patch("gx.commands.status.default_branch", return_value="main")
-        mocker.patch("gx.commands.status.all_local_branches", return_value=frozenset({"main"}))
-        mocker.patch("gx.commands.status.list_worktrees", return_value=[])
-        mocker.patch("gx.commands.status.stash_counts", return_value={})
-        mocker.patch("gx.commands.status.ahead_behind", return_value=(0, 0))
-        mocker.patch("gx.commands.status.tracking_remote_ref", return_value=None)
+        mocker.patch("gx.commands.info.repo_root", return_value=mocker.MagicMock())
+        mocker.patch("gx.commands.info.gh_available", return_value=False)
+        mocker.patch("gx.commands.info.list_worktrees", return_value=[])
+        mocker.patch("gx.commands.info.collect_branch_data", return_value=[])
+        mocker.patch("gx.commands.info.stash_counts", return_value={})
+        mocker.patch("gx.commands.info.count_file_statuses", return_value=(0, 0, 0, 0))
 
         result = runner.invoke(app, [])
-        # Bare gx runs status; the current branch is always shown in the table
         assert result.exit_code == 0
-        assert "Branch Status" in result.output
+        assert "Repository" in result.output
 
     def test_help_flag(self):
         """Verify --help flag prints help text."""

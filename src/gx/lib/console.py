@@ -89,6 +89,12 @@ GX_THEME = Theme(
         "error.detail": "red",
         "dryrun.marker": "bold cyan",
         "dryrun.message": "bold cyan",
+        "panel.title": "bold cyan",
+        "dim_label": "dim",
+        "value": "default",
+        "stash_branch": "cyan",
+        "wt_branch": "cyan",
+        "wt_path": "dim",
     }
 )
 
