@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 
 from gx.lib.branch import current_branch, tracking_branch
-from gx.lib.console import console, error, set_verbosity, step, warning
+from gx.lib.console import error, set_verbosity, step, step_result, warning
 from gx.lib.git import check_git_repo, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 
@@ -159,20 +159,18 @@ def print_summary(head_before: str, remote: str, remote_branch: str) -> None:
     """
     head_after = git("rev-parse", "HEAD")
     if head_before == head_after.stdout:
-        console.print("[step.success]✓[/] [step.message]Already up to date[/]")
+        step_result("Already up to date")
         return
 
     log_result = git("log", "--oneline", f"{head_before}..{head_after.stdout}")
     if log_result.success and log_result.stdout:
         commits = log_result.stdout.splitlines()
-        console.print(
-            f"[step.success]✓[/] [step.message]Pull {len(commits)} new commit(s) "
-            f"from {remote}/{remote_branch}[/]"
+        step_result(
+            f"Pull {len(commits)} new commit(s) from {remote}/{remote_branch}",
+            subs=commits,
         )
-        for commit in commits:
-            console.print(f"  [sub.pipe]│[/] {commit}")
     else:
-        console.print("[step.success]✓[/] [step.message]Pull complete[/]")
+        step_result("Pull complete")
 
 
 @app.callback(invoke_without_command=True)

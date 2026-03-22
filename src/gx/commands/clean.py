@@ -19,7 +19,7 @@ from gx.lib.branch import (
     merged_branches,
 )
 from gx.lib.config import config
-from gx.lib.console import console, set_verbosity, step, warning
+from gx.lib.console import set_verbosity, step, step_result, warning
 from gx.lib.git import check_git_repo, get_dry_run, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 from gx.lib.worktree import WorktreeInfo, list_worktrees, remove_worktree
@@ -213,21 +213,18 @@ def _display_candidates(
     """Print the summary of items to be cleaned."""
     total = len(worktree_candidates) + len(branch_candidates)
     if total > 0:
-        console.print(
-            f"[step.success]✓[/] [step.message]Find {total} stale "
-            f"item{'s' if total != 1 else ''}[/]"
-        )
+        subs: list[str] = []
         if worktree_candidates:
-            console.print("  [sub.pipe]│[/] Worktrees:")
-            for c in worktree_candidates:
-                if c.worktree is not None:
-                    console.print(
-                        f"  [sub.pipe]│[/]   {c.worktree.path}  (branch: {c.branch}, {c.reason})"
-                    )
+            subs.append("Worktrees:")
+            subs.extend(
+                f"  {c.worktree.path}  (branch: {c.branch}, {c.reason})"
+                for c in worktree_candidates
+                if c.worktree is not None
+            )
         if branch_candidates:
-            console.print("  [sub.pipe]│[/] Branches:")
-            for c in branch_candidates:
-                console.print(f"  [sub.pipe]│[/]   {c.branch}  ({c.reason})")
+            subs.append("Branches:")
+            subs.extend(f"  {c.branch}  ({c.reason})" for c in branch_candidates)
+        step_result(f"Find {total} stale item{'s' if total != 1 else ''}", subs=subs)
 
     if skipped:
         warning("Skipped (dirty worktree, use --force):")
@@ -290,7 +287,7 @@ def _print_removal_summary(wt_removed: int, br_removed: int) -> None:
 
     if parts:
         verb = "Would remove" if get_dry_run() else "Remove"
-        console.print(f"[step.success]✓[/] [step.message]{verb} {' and '.join(parts)}[/]")
+        step_result(f"{verb} {' and '.join(parts)}")
 
 
 FORCE_OPTION: bool = typer.Option(
@@ -356,7 +353,7 @@ def clean(
         if wt_skipped:
             _display_candidates([], [], wt_skipped)
         else:
-            console.print("[step.success]✓[/] [step.message]Nothing to clean[/]")
+            step_result("Nothing to clean")
         return
 
     _display_candidates(wt_candidates, br_candidates, wt_skipped)

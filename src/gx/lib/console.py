@@ -130,19 +130,32 @@ def step(message: str) -> Generator[Step]:
     via Step.sub() are printed after the marker with a gray pipe prefix.
     """
     s = Step(message)
+    escaped = escape(message)
     try:
         with console.status(
-            f"[step.message]{escape(message)}...[/]",
+            f"[step.message]{escaped}...[/]",
             spinner="dots",
             spinner_style="step.spinner",
         ):
             yield s
-        console.print(f"[step.success]✓[/] [step.message]{escape(message)}[/]")
+        console.print(f"[step.success]✓[/] [step.message]{escaped}[/]")
     except BaseException:
-        console.print(f"[step.fail]✗[/] [step.message]{escape(message)}[/]")
+        console.print(f"[step.fail]✗[/] [step.message]{escaped}[/]")
         raise
     finally:
         for sub_text in s._subs:  # noqa: SLF001
+            console.print(f"  [sub.pipe]│[/] {escape(sub_text)}")
+
+
+def step_result(message: str, subs: list[str] | None = None) -> None:
+    """Print a step-style success marker without a spinner.
+
+    Use for display-only output where the work already completed and no spinner
+    is needed. Renders identically to a successful step() completion.
+    """
+    console.print(f"[step.success]✓[/] [step.message]{escape(message)}[/]")
+    if subs:
+        for sub_text in subs:
             console.print(f"  [sub.pipe]│[/] {escape(sub_text)}")
 
 

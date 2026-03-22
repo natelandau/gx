@@ -7,7 +7,7 @@ from rich.prompt import Confirm
 
 from gx.lib.branch import current_branch, default_branch, tracking_branch
 from gx.lib.config import config
-from gx.lib.console import console, error, set_verbosity, step, warning
+from gx.lib.console import error, set_verbosity, step, step_result, warning
 from gx.lib.git import check_git_repo, get_dry_run, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 
@@ -92,12 +92,7 @@ def _print_summary(
 
     commits = log_result.stdout.splitlines()
     verb = "Would push" if get_dry_run() else "Push"
-    console.print(
-        f"[step.success]✓[/] [step.message]{verb} {len(commits)} commit(s) "
-        f"to {remote}/{remote_branch}[/]"
-    )
-    for commit in commits:
-        console.print(f"  [sub.pipe]│[/] {commit}")
+    step_result(f"{verb} {len(commits)} commit(s) to {remote}/{remote_branch}", subs=commits)
 
 
 FORCE_OPTION: bool = typer.Option(

@@ -135,7 +135,7 @@ def done(
             error("Could not find main worktree.")
             raise typer.Exit(1)
 
-        # pathlib has no chdir equivalent; os.chdir is the only option
+        # Must leave the worktree directory before removing it
         os.chdir(main_path)
 
         with step(f"Remove worktree {worktree.path}"):
