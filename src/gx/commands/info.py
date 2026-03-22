@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import typer
 from rich.console import Group
@@ -19,9 +19,6 @@ from gx.lib.display import kv_grid, render_branch_panel, render_working_tree_pan
 from gx.lib.git import check_git_repo, git, repo_root
 from gx.lib.github import gh, gh_available, is_github_remote
 from gx.lib.worktree import list_worktrees
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 WIDE_THRESHOLD = 100
@@ -105,6 +102,21 @@ def _git_dir_size(root: Path) -> str:
     """
     git_dir = root / ".git"
     if not git_dir.exists():
+        return "\u2014"
+
+    # In worktrees, .git is a file pointing to the real git dir
+    if git_dir.is_file():
+        content = git_dir.read_text().strip()
+        if content.startswith("gitdir: "):
+            git_dir = Path(content.removeprefix("gitdir: "))
+            if not git_dir.is_absolute():
+                git_dir = (root / git_dir).resolve()
+            # Walk up to the common .git directory (past worktrees/<name>)
+            if "worktrees" in git_dir.parts:
+                idx = git_dir.parts.index("worktrees")
+                git_dir = Path(*git_dir.parts[:idx])
+
+    if not git_dir.is_dir():
         return "\u2014"
 
     total = sum(f.stat().st_size for f in git_dir.rglob("*") if f.is_file())
