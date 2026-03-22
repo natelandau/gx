@@ -8,7 +8,8 @@ import click
 import pytest
 import typer
 
-from gx.commands.status import BranchRow, _build_file_tree, _collect_branch_data, _parse_porcelain
+from gx.commands.status import _build_file_tree, _parse_porcelain
+from gx.lib.branch import BranchRow, collect_branch_data
 
 from .conftest import _fail, _ok  # noqa: F401
 
@@ -28,6 +29,7 @@ def _branch_row(
     is_current: bool = False,  # noqa: FBT002
     is_worktree: bool = False,  # noqa: FBT002
     worktree_path: Path | None = None,
+    tracking_ref: str | None = None,
 ) -> BranchRow:
     """Build a BranchRow for testing."""
     return BranchRow(
@@ -45,6 +47,7 @@ def _branch_row(
         is_current=is_current,
         is_worktree=is_worktree,
         worktree_path=worktree_path,
+        tracking_ref=tracking_ref,
     )
 
 
@@ -101,19 +104,19 @@ class TestCollectBranchData:
     def test_basic_branch_data(self, mocker):
         """Verify branch data is collected for active branches."""
         # Given
-        mocker.patch("gx.commands.status.current_branch", return_value="feat/login")
-        mocker.patch("gx.commands.status.default_branch", return_value="main")
+        mocker.patch("gx.lib.branch.current_branch", return_value="feat/login")
+        mocker.patch("gx.lib.branch.default_branch", return_value="main")
         mocker.patch(
-            "gx.commands.status.all_local_branches",
+            "gx.lib.branch.all_local_branches",
             return_value=frozenset({"main", "feat/login"}),
         )
-        mocker.patch("gx.commands.status.list_worktrees", return_value=[])
-        mocker.patch("gx.commands.status.stash_counts", return_value={})
-        mocker.patch("gx.commands.status.ahead_behind", return_value=(2, 0))
-        mocker.patch("gx.commands.status.tracking_remote_ref", return_value=None)
-        mocker.patch("gx.commands.status.git", return_value=_ok(stdout=" M file.py\n?? new.txt"))
+        mocker.patch("gx.lib.worktree.list_worktrees", return_value=[])
+        mocker.patch("gx.lib.branch.stash_counts", return_value={})
+        mocker.patch("gx.lib.branch.ahead_behind", return_value=(2, 0))
+        mocker.patch("gx.lib.branch.tracking_remote_ref", return_value=None)
+        mocker.patch("gx.lib.branch.git", return_value=_ok(stdout=" M file.py\n?? new.txt"))
         # When
-        rows = _collect_branch_data(show_all=False)
+        rows = collect_branch_data(show_all=False)
         # Then
         branch_names = [r.branch for r in rows]
         assert "feat/login" in branch_names
@@ -121,19 +124,19 @@ class TestCollectBranchData:
     def test_inactive_branch_excluded_by_default(self, mocker):
         """Verify clean branches without activity are excluded."""
         # Given
-        mocker.patch("gx.commands.status.current_branch", return_value="feat/login")
-        mocker.patch("gx.commands.status.default_branch", return_value="main")
+        mocker.patch("gx.lib.branch.current_branch", return_value="feat/login")
+        mocker.patch("gx.lib.branch.default_branch", return_value="main")
         mocker.patch(
-            "gx.commands.status.all_local_branches",
+            "gx.lib.branch.all_local_branches",
             return_value=frozenset({"main", "feat/login", "old-branch"}),
         )
-        mocker.patch("gx.commands.status.list_worktrees", return_value=[])
-        mocker.patch("gx.commands.status.stash_counts", return_value={})
-        mocker.patch("gx.commands.status.ahead_behind", return_value=(0, 0))
-        mocker.patch("gx.commands.status.tracking_remote_ref", return_value=None)
-        mocker.patch("gx.commands.status.git", return_value=_ok(stdout=""))
+        mocker.patch("gx.lib.worktree.list_worktrees", return_value=[])
+        mocker.patch("gx.lib.branch.stash_counts", return_value={})
+        mocker.patch("gx.lib.branch.ahead_behind", return_value=(0, 0))
+        mocker.patch("gx.lib.branch.tracking_remote_ref", return_value=None)
+        mocker.patch("gx.lib.branch.git", return_value=_ok(stdout=""))
         # When
-        rows = _collect_branch_data(show_all=False)
+        rows = collect_branch_data(show_all=False)
         # Then
         branch_names = [r.branch for r in rows]
         assert "old-branch" not in branch_names
@@ -141,19 +144,19 @@ class TestCollectBranchData:
     def test_show_all_includes_inactive(self, mocker):
         """Verify --all flag includes clean branches."""
         # Given
-        mocker.patch("gx.commands.status.current_branch", return_value="feat/login")
-        mocker.patch("gx.commands.status.default_branch", return_value="main")
+        mocker.patch("gx.lib.branch.current_branch", return_value="feat/login")
+        mocker.patch("gx.lib.branch.default_branch", return_value="main")
         mocker.patch(
-            "gx.commands.status.all_local_branches",
+            "gx.lib.branch.all_local_branches",
             return_value=frozenset({"main", "feat/login", "old-branch"}),
         )
-        mocker.patch("gx.commands.status.list_worktrees", return_value=[])
-        mocker.patch("gx.commands.status.stash_counts", return_value={})
-        mocker.patch("gx.commands.status.ahead_behind", return_value=(0, 0))
-        mocker.patch("gx.commands.status.tracking_remote_ref", return_value=None)
-        mocker.patch("gx.commands.status.git", return_value=_ok(stdout=""))
+        mocker.patch("gx.lib.worktree.list_worktrees", return_value=[])
+        mocker.patch("gx.lib.branch.stash_counts", return_value={})
+        mocker.patch("gx.lib.branch.ahead_behind", return_value=(0, 0))
+        mocker.patch("gx.lib.branch.tracking_remote_ref", return_value=None)
+        mocker.patch("gx.lib.branch.git", return_value=_ok(stdout=""))
         # When
-        rows = _collect_branch_data(show_all=True)
+        rows = collect_branch_data(show_all=True)
         # Then
         branch_names = [r.branch for r in rows]
         assert "old-branch" in branch_names
@@ -332,16 +335,16 @@ class TestStatusEdgeCases:
         """Verify --branches shows only the branch table."""
         # Given
         mock_status_git.return_value = _ok(stdout=" M file.py")
-        mocker.patch("gx.commands.status.current_branch", return_value="feat/test")
-        mocker.patch("gx.commands.status.default_branch", return_value="main")
+        mocker.patch("gx.lib.branch.current_branch", return_value="feat/test")
+        mocker.patch("gx.lib.branch.default_branch", return_value="main")
         mocker.patch(
-            "gx.commands.status.all_local_branches",
+            "gx.lib.branch.all_local_branches",
             return_value=frozenset({"main", "feat/test"}),
         )
-        mocker.patch("gx.commands.status.list_worktrees", return_value=[])
-        mocker.patch("gx.commands.status.stash_counts", return_value={})
-        mocker.patch("gx.commands.status.ahead_behind", return_value=(1, 0))
-        mocker.patch("gx.commands.status.tracking_remote_ref", return_value=None)
+        mocker.patch("gx.lib.worktree.list_worktrees", return_value=[])
+        mocker.patch("gx.lib.branch.stash_counts", return_value={})
+        mocker.patch("gx.lib.branch.ahead_behind", return_value=(1, 0))
+        mocker.patch("gx.lib.branch.tracking_remote_ref", return_value=None)
 
         # When
         from gx.commands.status import status

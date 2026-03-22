@@ -2,28 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
 import typer
 from rich.panel import Panel
 from rich.text import Text
 from rich.tree import Tree
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-from gx.lib.branch import (
-    ahead_behind,
-    all_local_branches,
-    current_branch,
-    default_branch,
-    stash_counts,
-    tracking_remote_ref,
-)
+from gx.lib.branch import BranchRow, collect_branch_data, current_branch
 from gx.lib.console import console, error
 from gx.lib.git import check_git_repo, git, repo_root
-from gx.lib.worktree import list_worktrees
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
@@ -33,9 +19,6 @@ DOT_CHAR = "\u00b7"
 
 # Minimum line length for a valid porcelain entry: 2-char code + space + 1-char path
 _PORCELAIN_MIN_LINE_LEN = 4
-
-# Minimum characters required to have a valid XY status code pair
-_STATUS_CODE_MIN_LEN = 2
 
 LEADER_WIDTH = 50
 
@@ -141,192 +124,6 @@ def _build_file_tree(entries: list[tuple[str, str]], root_name: str) -> Tree | N
         parent.add(_file_entry_text(filename, code))
 
     return tree
-
-
-@dataclass(frozen=True)
-class BranchRow:
-    """Data for one branch in the status display."""
-
-    branch: str
-    target: str
-    ahead_target: int
-    behind_target: int
-    ahead_remote: int | None
-    behind_remote: int | None
-    staged: int
-    modified: int
-    unmerged: int
-    untracked: int
-    stashes: int
-    is_current: bool
-    is_worktree: bool
-    worktree_path: Path | None
-
-    @property
-    def is_active(self) -> bool:
-        """Return True if this branch has any non-zero metric."""
-        return (
-            self.ahead_target != 0
-            or self.behind_target != 0
-            or (self.ahead_remote is not None and self.ahead_remote != 0)
-            or (self.behind_remote is not None and self.behind_remote != 0)
-            or self.staged != 0
-            or self.modified != 0
-            or self.unmerged != 0
-            or self.untracked != 0
-            or self.stashes != 0
-        )
-
-
-def _count_file_statuses(porcelain_output: str) -> tuple[int, int, int, int]:
-    """Count staged, modified, unmerged, and untracked files from porcelain output.
-
-    Parses the two-character XY codes from `git status --porcelain` to bucket
-    each file into one of four categories for dashboard display.
-
-    Args:
-        porcelain_output: Raw stdout from `git status --porcelain`.
-
-    Returns:
-        A (staged, modified, unmerged, untracked) count tuple.
-    """
-    staged = modified = unmerged = untracked = 0
-    if not porcelain_output:
-        return (0, 0, 0, 0)
-    for line in porcelain_output.splitlines():
-        if len(line) < _STATUS_CODE_MIN_LEN:
-            continue
-        x, y = line[0], line[1]
-        if x == "?" and y == "?":
-            untracked += 1
-        elif x == "U" or y == "U" or (x == "A" and y == "A") or (x == "D" and y == "D"):
-            unmerged += 1
-        else:
-            if x not in (" ", "?"):
-                staged += 1
-            if y not in (" ", "?"):
-                modified += 1
-    return (staged, modified, unmerged, untracked)
-
-
-def _branch_remote_counts(branch: str, target: str) -> tuple[int, int, int | None, int | None]:
-    """Return ahead/behind counts for a branch relative to target and remote.
-
-    Args:
-        branch: The local branch name.
-        target: The default branch to compare against.
-
-    Returns:
-        A (ahead_target, behind_target, ahead_remote, behind_remote) tuple,
-        where remote values are None when no tracking ref is configured.
-    """
-    if branch == target:
-        at_ahead, at_behind = 0, 0
-    else:
-        ab = ahead_behind(branch, target)
-        at_ahead, at_behind = ab or (0, 0)
-
-    ar_ahead: int | None = None
-    ar_behind: int | None = None
-    remote_ref = tracking_remote_ref(branch)
-    if remote_ref:
-        remote_ab = ahead_behind(branch, remote_ref)
-        if remote_ab:
-            ar_ahead, ar_behind = remote_ab
-
-    return (at_ahead, at_behind, ar_ahead, ar_behind)
-
-
-def _branch_file_statuses(*, is_current: bool, wt_path: Path | None) -> tuple[int, int, int, int]:
-    """Fetch and count working-tree file statuses for a branch.
-
-    Only queries git for branches that are currently checked out (current branch
-    or branches with a worktree), since other branches have no working tree state.
-
-    Args:
-        is_current: Whether this is the currently active branch.
-        wt_path: Path to the branch's worktree, if any.
-
-    Returns:
-        A (staged, modified, unmerged, untracked) count tuple.
-    """
-    if not is_current and not wt_path:
-        return (0, 0, 0, 0)
-
-    cwd = None if is_current else wt_path
-    result = git("status", "--porcelain", cwd=cwd)
-    if result.success:
-        return _count_file_statuses(result.stdout)
-    return (0, 0, 0, 0)
-
-
-def _collect_branch_data(
-    *, show_all: bool, current_porcelain: str | None = None
-) -> list[BranchRow]:
-    """Collect metrics for all local branches.
-
-    Gathers ahead/behind counts relative to the default branch and any remote
-    tracking ref, plus working-tree file counts for current and worktree branches.
-    Inactive branches (all metrics zero) are excluded unless show_all is True.
-
-    Args:
-        show_all: When True, include branches with no activity.
-        current_porcelain: Pre-fetched porcelain output for the current branch,
-            to avoid a redundant git status call when the caller already has it.
-
-    Returns:
-        A list of BranchRow instances sorted with the current branch first.
-    """
-    cur = current_branch()
-    target = default_branch()
-    branches = all_local_branches()
-    stashes = stash_counts()
-    worktrees = list_worktrees()
-
-    wt_map: dict[str, Path] = {}
-    for wt in worktrees:
-        if wt.branch and not wt.is_main:
-            wt_map[wt.branch] = wt.path
-    for wt in worktrees:
-        if wt.is_main and wt.branch:
-            wt_map[wt.branch] = wt.path
-            break
-
-    rows: list[BranchRow] = []
-    for branch in sorted(branches):
-        is_current = branch == cur
-        at_ahead, at_behind, ar_ahead, ar_behind = _branch_remote_counts(branch, target)
-
-        wt_path = wt_map.get(branch)
-        if is_current and current_porcelain is not None:
-            staged, modified, unmerged, untracked = _count_file_statuses(current_porcelain)
-        else:
-            staged, modified, unmerged, untracked = _branch_file_statuses(
-                is_current=is_current, wt_path=wt_path
-            )
-
-        row = BranchRow(
-            branch=branch,
-            target=target,
-            ahead_target=at_ahead,
-            behind_target=at_behind,
-            ahead_remote=ar_ahead,
-            behind_remote=ar_behind,
-            staged=staged,
-            modified=modified,
-            unmerged=unmerged,
-            untracked=untracked,
-            stashes=stashes.get(branch, 0),
-            is_current=is_current,
-            is_worktree=wt_path is not None and not is_current,
-            worktree_path=wt_path if not is_current else None,
-        )
-
-        if show_all or row.is_active or is_current:
-            rows.append(row)
-
-    rows.sort(key=lambda r: (not r.is_current, r.branch))
-    return rows
 
 
 def _ahead_behind_segment(label: str, ahead: int, behind: int) -> Text:
@@ -556,7 +353,7 @@ def status(
 
     branch_table = None
     if show_branches:
-        rows = _collect_branch_data(show_all=show_all, current_porcelain=porcelain_output)
+        rows = collect_branch_data(show_all=show_all, current_porcelain=porcelain_output)
         branch_table = _render_branch_status(rows)
 
     if file_panel is None and branch_table is None:
