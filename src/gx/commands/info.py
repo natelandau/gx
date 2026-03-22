@@ -239,7 +239,6 @@ def _repo_panel() -> Panel:
 
     # Submodule count
     sub_count = _submodule_count(root)
-    sub_val = str(sub_count) if sub_count else "None"
 
     rows: list[tuple[str, str | Text]] = [
         ("Path", path_val),
@@ -252,8 +251,9 @@ def _repo_panel() -> Panel:
         ("Repo age", age_val),
         ("Disk size", size_val),
         ("Last fetch", fetch_val),
-        ("Submodules", sub_val),
     ]
+    if sub_count:
+        rows.append(("Submodules", str(sub_count)))
 
     return Panel(kv_grid(rows), title="Repository", border_style="dim")
 
@@ -350,10 +350,15 @@ def _github_panel(remote_url: str) -> Panel | None:
         ("Description", description),
         ("Visibility", visibility),
         ("Stars", stars),
-        ("Fork", fork_val),
-        ("Open PRs", pr_text),
-        ("Open issues", issue_text),
     ]
+    if is_fork:
+        rows.append(("Fork", fork_val))
+    rows.extend(
+        [
+            ("Open PRs", pr_text),
+            ("Open issues", issue_text),
+        ]
+    )
 
     return Panel(kv_grid(rows), title="GitHub", border_style="dim")
 
