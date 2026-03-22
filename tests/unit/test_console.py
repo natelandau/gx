@@ -1,9 +1,11 @@
 """Tests for gx console output system."""
 
 import pytest
+from rich.text import Text
 
 from gx.constants import Verbosity
 from gx.lib.console import (
+    GitHighlighter,
     console,
     debug,
     dryrun,
@@ -183,3 +185,53 @@ class TestDryrunHelper:
         dryrun("git push origin main")
         captured = capsys.readouterr()
         assert captured.err == ""
+
+
+class TestGitHighlighter:
+    """Tests for GitHighlighter regex patterns."""
+
+    @pytest.fixture
+    def highlighter(self) -> GitHighlighter:
+        """Return a GitHighlighter instance."""
+        return GitHighlighter()
+
+    def test_highlights_short_sha(self, highlighter: GitHighlighter) -> None:
+        """Verify 7-char hex strings are highlighted as SHAs."""
+        text = Text("0fa0a83 some message")
+        highlighter.highlight(text)
+        styles = [s.style for s in text._spans]
+        assert "git.sha" in styles
+
+    def test_highlights_commit_type(self, highlighter: GitHighlighter) -> None:
+        """Verify angular commit types are highlighted."""
+        text = Text("feat: add feature")
+        highlighter.highlight(text)
+        styles = [s.style for s in text._spans]
+        assert "git.type" in styles
+
+    def test_highlights_commit_scope(self, highlighter: GitHighlighter) -> None:
+        """Verify commit scopes in parens are highlighted."""
+        text = Text("feat(log): add feature")
+        highlighter.highlight(text)
+        styles = [s.style for s in text._spans]
+        assert "git.scope" in styles
+
+    def test_highlights_pr_reference(self, highlighter: GitHighlighter) -> None:
+        """Verify PR references like (#3) are highlighted."""
+        text = Text("add feature (#3)")
+        highlighter.highlight(text)
+        styles = [s.style for s in text._spans]
+        assert "git.pr" in styles
+
+    def test_no_false_positive_on_normal_text(self, highlighter: GitHighlighter) -> None:
+        """Verify normal text gets no highlighting."""
+        text = Text("hello world")
+        highlighter.highlight(text)
+        assert len(text._spans) == 0
+
+    def test_highlights_colon_after_type(self, highlighter: GitHighlighter) -> None:
+        """Verify colon after commit type is highlighted."""
+        text = Text("feat: add feature")
+        highlighter.highlight(text)
+        styles = [s.style for s in text._spans]
+        assert "git.colon" in styles

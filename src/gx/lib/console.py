@@ -15,12 +15,26 @@ Usage in commands:
     console.print(table)                    # Direct Rich output (tables, panels, etc.)
 """
 
-from typing import Any
+from typing import Any, ClassVar
 
 from rich.console import Console
+from rich.highlighter import RegexHighlighter
 from rich.theme import Theme
 
 from gx.constants import Verbosity
+
+
+class GitHighlighter(RegexHighlighter):
+    """Highlight git-related tokens in output text."""
+
+    base_style: str = "git."
+    highlights: ClassVar[list[str]] = [
+        r"(?P<sha>\b[0-9a-f]{7,12}\b)",
+        r"(?P<type>(?:feat|fix|refactor|perf|build|ci|docs|style|test|chore|bump))"
+        r"(?P<scope>\([^)]+\))?(?P<colon>:)",
+        r"(?P<pr>\(#\d+\))",
+    ]
+
 
 GX_THEME = Theme(
     {
@@ -48,10 +62,33 @@ GX_THEME = Theme(
         "log_ref_tag": "bold yellow",
         "log_body": "dim",
         "log_graph": "dim",
+        "step.success": "green",
+        "step.fail": "red",
+        "step.message": "bold default",
+        "step.spinner": "cyan",
+        "sub.pipe": "bright_black",
+        "git.sha": "yellow",
+        "git.type": "cyan",
+        "git.scope": "blue",
+        "git.colon": "default",
+        "git.pr": "magenta",
+        "debug.marker": "cyan",
+        "debug.message": "cyan",
+        "trace.marker": "bright_black",
+        "trace.message": "bright_black",
+        "warning.marker": "yellow",
+        "warning.message": "bold yellow",
+        "warning.detail": "yellow",
+        "error.marker": "bold red",
+        "error.message": "bold red",
+        "error.detail": "red",
+        "dryrun.marker": "bold cyan",
+        "dryrun.message": "bold cyan",
     }
 )
 
-console = Console(theme=GX_THEME)
+highlighter = GitHighlighter()
+console = Console(theme=GX_THEME, highlighter=highlighter)
 err_console = Console(theme=GX_THEME, stderr=True)
 
 _verbosity: Verbosity = Verbosity.INFO
