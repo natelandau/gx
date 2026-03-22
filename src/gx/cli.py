@@ -6,7 +6,7 @@ import typer
 from typer import rich_utils
 
 from gx import __version__
-from gx.commands import clean, done, feat, pull, push, status
+from gx.commands import clean, done, feat, log, pull, push, status
 from gx.lib.console import set_verbosity
 from gx.lib.git import check_git_installed, git
 from gx.lib.options import VERBOSE_OPTION
@@ -22,6 +22,7 @@ app.add_typer(feat.app, name="feat")
 app.add_typer(clean.app, name="clean")
 app.add_typer(done.app, name="done")
 app.add_typer(status.app, name="status")
+app.add_typer(log.app, name="log")
 
 
 def _version_callback(value: bool) -> None:  # noqa: FBT001

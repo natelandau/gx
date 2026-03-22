@@ -147,3 +147,15 @@ def mock_status_repo_root(mocker):
     from pathlib import Path
 
     return mocker.patch("gx.commands.status.repo_root", autospec=True, return_value=Path("/repo"))
+
+
+@pytest.fixture
+def mock_log_git(mocker):
+    """Patch git() at the log command's usage site."""
+    return mocker.patch("gx.commands.log.git", autospec=True)
+
+
+@pytest.fixture
+def mock_log_check_git_repo(mocker):
+    """Patch check_git_repo() at the log command's usage site as a no-op."""
+    return mocker.patch("gx.commands.log.check_git_repo", autospec=True)
