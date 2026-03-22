@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 import typer
@@ -18,6 +19,12 @@ _FIELD_SEP = "\x00"
 _DEFAULT_COUNT = 15
 _BODY_FIELD_INDEX = 5
 _KNOWN_REMOTE_NAMES = {"origin", "upstream", "fork"}
+
+_SHA_RE = re.compile(r"([a-f0-9]{7,})")
+_TIME_RE = re.compile(r"(\d+ \w+ ago)")
+_AUTHOR_RE = re.compile(r"<([^>]+)>")
+_REFS_RE = re.compile(r"\(([^)]+)\)")
+_CONNECTOR_RE = re.compile(r"^[\s*/|\\]+$")
 
 
 @dataclass(frozen=True)
@@ -227,3 +234,60 @@ def render_log_grid(entries: list[LogEntry], *, show_body: bool) -> Group | None
             renderables.append(Text(""))
 
     return Group(*renderables)
+
+
+def colorize_graph_line(line: str) -> Text:
+    """Apply Rich styling to a single git log --graph output line.
+
+    Commit lines get per-field coloring (SHA, time, author, refs).
+    Connector-only lines (just graph characters) are styled dim.
+
+    Args:
+        line: A single line from `git log --graph` output.
+
+    Returns:
+        A styled Rich Text object representing the line.
+    """
+    if not line:
+        return Text("")
+
+    if _CONNECTOR_RE.match(line):
+        return Text(line, style="log_graph")
+
+    text = Text()
+    remaining = line
+
+    sha_match = _SHA_RE.search(remaining)
+    if not sha_match:
+        return Text(line)
+
+    # Everything before SHA (graph chars)
+    text.append(remaining[: sha_match.start()])
+    text.append(sha_match.group(1), style="log_sha")
+    remaining = remaining[sha_match.end() :]
+
+    time_match = _TIME_RE.search(remaining)
+    if time_match:
+        text.append(remaining[: time_match.start()])
+        text.append(time_match.group(1), style="log_time")
+        remaining = remaining[time_match.end() :]
+
+    author_match = _AUTHOR_RE.search(remaining)
+    if author_match:
+        text.append(remaining[: author_match.start()])
+        text.append(author_match.group(1), style="log_author")
+        remaining = remaining[author_match.end() :]
+
+    refs_match = _REFS_RE.search(remaining)
+    if refs_match:
+        text.append(remaining[: refs_match.start()])
+        text.append("(", style="log_graph")
+        text.append(refs_match.group(1), style="branch_current")
+        text.append(")", style="log_graph")
+        remaining = remaining[refs_match.end() :]
+
+    # Remainder is the subject line
+    if remaining:
+        text.append(remaining)
+
+    return text

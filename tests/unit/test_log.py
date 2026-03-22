@@ -9,6 +9,7 @@ from rich.console import Console
 from gx.commands.log import (
     LogEntry,
     RefsData,
+    colorize_graph_line,
     parse_log_entries,
     parse_refs,
     render_log_grid,
@@ -222,3 +223,49 @@ class TestRenderLogGrid:
         result = render_log_grid([], show_body=False)
         # Then
         assert result is None
+
+
+class TestColorizeGraphLine:
+    """Tests for applying Rich styles to git log --graph output lines."""
+
+    def test_commit_line_colorized(self):
+        """Verify SHA, time, author, and subject are styled on commit lines."""
+        # Given
+        line = "* 9c96da2 3 days ago <Nate Landau> bump release"
+        # When
+        text = colorize_graph_line(line)
+        # Then
+        plain = text.plain
+        assert "9c96da2" in plain
+        assert "3 days ago" in plain
+        assert "Nate Landau" in plain
+        assert "bump release" in plain
+        # Angle brackets should be removed from author
+        assert "<" not in plain
+        assert ">" not in plain
+
+    def test_connector_line_styled_dim(self):
+        """Verify graph-only lines are styled with log_graph."""
+        # Given
+        line = "| * |"
+        # When
+        text = colorize_graph_line(line)
+        # Then
+        assert text.plain.strip() == "| * |"
+
+    def test_line_with_ref_decoration(self):
+        """Verify ref decorations in parentheses are preserved."""
+        # Given
+        line = "* 9c96da2 3 days ago <Nate> bump (HEAD -> main, origin/main)"
+        # When
+        text = colorize_graph_line(line)
+        # Then
+        plain = text.plain
+        assert "HEAD -> main" in plain
+
+    def test_empty_line(self):
+        """Verify empty lines pass through."""
+        # When
+        text = colorize_graph_line("")
+        # Then
+        assert text.plain == ""
