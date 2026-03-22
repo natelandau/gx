@@ -21,7 +21,6 @@ app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
 _RECORD_SEP = "\x01"
 _FIELD_SEP = "\x00"
 _DEFAULT_COUNT = 15
-_BODY_FIELD_INDEX = 5
 _KNOWN_REMOTE_NAMES = {"origin", "upstream", "fork"}
 
 COUNT_OPTION: int = typer.Option(
@@ -104,11 +103,7 @@ def parse_log_entries(raw: str, *, has_body: bool) -> list[LogEntry]:
         if len(fields) < expected_fields:
             continue
 
-        body = (
-            fields[_BODY_FIELD_INDEX].strip()
-            if has_body and len(fields) > _BODY_FIELD_INDEX
-            else ""
-        )
+        body = fields[5].strip() if has_body else ""
 
         entries.append(
             LogEntry(
@@ -203,6 +198,22 @@ def render_ref_banner(refs: RefsData) -> Text | None:
     return text
 
 
+def _make_log_table() -> Table:
+    """Create an invisible Rich Table configured for log column alignment."""
+    table = Table(
+        show_header=False,
+        show_edge=False,
+        box=None,
+        pad_edge=False,
+        padding=(0, 2),
+    )
+    table.add_column(style="log_sha", no_wrap=True, width=7)
+    table.add_column(style="log_time", no_wrap=True)
+    table.add_column(no_wrap=False, ratio=1)
+    table.add_column(style="log_author", no_wrap=True, justify="right")
+    return table
+
+
 def render_log_grid(entries: list[LogEntry], *, show_body: bool) -> Group | None:
     """Render log entries as an invisible Rich grid with optional commit bodies.
 
@@ -220,43 +231,20 @@ def render_log_grid(entries: list[LogEntry], *, show_body: bool) -> Group | None
         return None
 
     if not show_body:
-        table = Table(
-            show_header=False,
-            show_edge=False,
-            box=None,
-            pad_edge=False,
-            padding=(0, 2),
-        )
-        table.add_column(style="log_sha", no_wrap=True, width=7)
-        table.add_column(style="log_time", no_wrap=True)
-        table.add_column(no_wrap=False, ratio=1)
-        table.add_column(style="log_author", no_wrap=True, justify="right")
-
+        table = _make_log_table()
         for entry in entries:
             table.add_row(entry.sha, entry.relative_time, entry.subject, entry.author)
-
         return Group(table)
 
-    # With bodies: build individual one-row tables + body text for spacing control
+    # Per-row tables allow body text to be inserted between rows with natural spacing
     renderables: list[Table | Text] = []
     for entry in entries:
-        row_table = Table(
-            show_header=False,
-            show_edge=False,
-            box=None,
-            pad_edge=False,
-            padding=(0, 2),
-        )
-        row_table.add_column(style="log_sha", no_wrap=True, width=7)
-        row_table.add_column(style="log_time", no_wrap=True)
-        row_table.add_column(no_wrap=False, ratio=1)
-        row_table.add_column(style="log_author", no_wrap=True, justify="right")
+        row_table = _make_log_table()
         row_table.add_row(entry.sha, entry.relative_time, entry.subject, entry.author)
         renderables.append(row_table)
 
         if entry.body:
-            body_text = Text(f"  {entry.body}", style="log_body")
-            renderables.append(body_text)
+            renderables.append(Text(f"  {entry.body}", style="log_body"))
             renderables.append(Text(""))
 
     return Group(*renderables)
@@ -312,7 +300,6 @@ def colorize_graph_line(line: str) -> Text:
         text.append(")", style="log_graph")
         remaining = remaining[refs_match.end() :]
 
-    # Remainder is the subject line
     if remaining:
         text.append(remaining)
 
