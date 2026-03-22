@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 
 from gx.lib.branch import current_branch, tracking_branch
-from gx.lib.console import error, info, set_verbosity, warning
+from gx.lib.console import console, error, set_verbosity, step, warning
 from gx.lib.git import check_git_repo, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 
@@ -77,8 +77,8 @@ def stash_if_dirty() -> bool:
     if not is_dirty():
         return False
 
-    info("Stashing local changes...")
-    git("stash", "--include-untracked").raise_on_error()
+    with step("Stash local changes"):
+        git("stash", "--include-untracked").raise_on_error()
     return True
 
 
@@ -90,24 +90,23 @@ def fetch_and_rebase(remote: str, remote_branch: str, *, stashed: bool) -> None:
         remote_branch: The remote branch to rebase onto.
         stashed: Whether local changes were stashed, used for rollback.
     """
-    info(f"Fetching from {remote}...")
-    result = git("fetch", remote)
-    if not result.success:
-        error(f"Failed to fetch from {remote}.")
-        rollback(stashed=stashed)
+    with step(f"Fetch from {remote}"):
+        result = git("fetch", remote)
+        if not result.success:
+            rollback(stashed=stashed)
 
-    info(f"Pulling with rebase from {remote}/{remote_branch}...")
-    result = git("pull", "--rebase", remote, remote_branch)
-    if not result.success:
-        if is_rebase_in_progress():
-            error("Rebase conflict detected. To resolve:")
-            error("  1. Fix the conflicts in the affected files")
-            error("  2. Stage the resolved files with 'git add'")
-            error("  3. Continue with 'git rebase --continue'")
-            error("  Or abort with 'git rebase --abort'")
-        else:
-            error(f"Failed to pull from {remote}/{remote_branch}.")
-        rollback(stashed=stashed)
+    with step(f"Pull with rebase from {remote}/{remote_branch}"):
+        result = git("pull", "--rebase", remote, remote_branch)
+        if not result.success:
+            if is_rebase_in_progress():
+                error("Rebase conflict detected")
+                error("1. Fix the conflicts in the affected files", detail=True)
+                error("2. Stage the resolved files with 'git add'", detail=True)
+                error("3. Continue with 'git rebase --continue'", detail=True)
+                error("Or abort with 'git rebase --abort'", detail=True)
+            else:
+                error(f"Failed to pull from {remote}/{remote_branch}")
+            rollback(stashed=stashed)
 
 
 def update_submodules(*, stashed: bool) -> None:
@@ -119,11 +118,11 @@ def update_submodules(*, stashed: bool) -> None:
     if not has_submodules():
         return
 
-    info("Updating submodules...")
-    result = git("submodule", "update", "--init", "--recursive")
-    if not result.success:
-        error("Failed to update submodules.")
-        rollback(stashed=stashed)
+    with step("Update submodules"):
+        result = git("submodule", "update", "--init", "--recursive")
+        if not result.success:
+            error("Failed to update submodules")
+            rollback(stashed=stashed)
 
 
 def unstash(*, stashed: bool) -> None:
@@ -138,14 +137,16 @@ def unstash(*, stashed: bool) -> None:
     if not stashed:
         return
 
-    info("Restoring stashed changes...")
-    result = git("stash", "pop")
-    if not result.success:
-        warning("Could not cleanly restore stashed changes.")
-        warning("Your pull succeeded, but stashed changes conflict with pulled code.")
-        warning("Run 'git stash show' to see stashed changes.")
-        warning("Run 'git stash pop' to try again, or 'git stash drop' to discard.")
-        raise typer.Exit(1)
+    with step("Restore stashed changes"):
+        result = git("stash", "pop")
+        if not result.success:
+            warning("Could not cleanly restore stashed changes")
+            warning(
+                "Your pull succeeded, but stashed changes conflict with pulled code", detail=True
+            )
+            warning("Run 'git stash show' to see stashed changes", detail=True)
+            warning("Run 'git stash pop' to try again, or 'git stash drop' to discard", detail=True)
+            raise typer.Exit(1)
 
 
 def print_summary(head_before: str, remote: str, remote_branch: str) -> None:
@@ -158,17 +159,20 @@ def print_summary(head_before: str, remote: str, remote_branch: str) -> None:
     """
     head_after = git("rev-parse", "HEAD")
     if head_before == head_after.stdout:
-        info("Already up to date.")
+        console.print("[step.success]✓[/] [step.message]Already up to date[/]")
         return
 
     log_result = git("log", "--oneline", f"{head_before}..{head_after.stdout}")
     if log_result.success and log_result.stdout:
         commits = log_result.stdout.splitlines()
-        info(f"Pulled {len(commits)} new commit(s) from {remote}/{remote_branch}:")
+        console.print(
+            f"[step.success]✓[/] [step.message]Pull {len(commits)} new commit(s) "
+            f"from {remote}/{remote_branch}[/]"
+        )
         for commit in commits:
-            info(f"  {commit}")
+            console.print(f"  [sub.pipe]│[/] {commit}")
     else:
-        info("Pull complete.")
+        console.print("[step.success]✓[/] [step.message]Pull complete[/]")
 
 
 @app.callback(invoke_without_command=True)
