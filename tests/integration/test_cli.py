@@ -77,8 +77,8 @@ class TestHelpOutput:
             return_value=GitResult(command="git", returncode=0, stdout="test", stderr=""),
         )
         mocker.patch("gx.commands.info.repo_root", return_value=mocker.MagicMock())
-        mocker.patch("gx.commands.info.gh_available", return_value=False)
-        mocker.patch("gx.commands.info.list_worktrees", return_value=[])
+        mocker.patch("gx.lib.info_panels.gh_available", return_value=False)
+        mocker.patch("gx.lib.info_panels.list_worktrees", return_value=[])
         mocker.patch("gx.commands.info.collect_branch_data", return_value=[])
         mocker.patch("gx.commands.info.stash_counts", return_value={})
         mocker.patch("gx.commands.info.count_file_statuses", return_value=(0, 0, 0, 0))
