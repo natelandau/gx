@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from gx.lib.config import config
-from gx.lib.stale_analyzer import StaleAnalyzer, _stale_reason
+from gx.lib.stale_analyzer import StaleAnalyzer, _classify_stale
 from gx.lib.worktree import WorktreeInfo
 
 
@@ -385,27 +385,20 @@ class TestStaleBranches:
         assert br_candidates[0].reason == "empty"
 
 
-class TestStaleReason:
-    """Tests for _stale_reason()."""
+class TestClassifyStale:
+    """Tests for _classify_stale()."""
 
     def test_gone_takes_priority(self):
         """Verify gone is returned when branch is both gone and merged."""
-        reason = _stale_reason(
-            "feat/1",
-            merged=frozenset({"feat/1"}),
-            gone=frozenset({"feat/1"}),
-            target="main",
-        )
+        reason = _classify_stale(is_gone=True, is_merged=True, is_empty_branch=True)
         assert reason == "gone"
 
-    def test_returns_none_for_non_stale(self, mocker):
-        """Verify None for a branch that is not stale."""
-        mocker.patch("gx.lib.stale_analyzer.is_empty", return_value=False)
+    def test_merged_over_empty(self):
+        """Verify merged takes priority over empty."""
+        reason = _classify_stale(is_gone=False, is_merged=True, is_empty_branch=True)
+        assert reason == "merged"
 
-        reason = _stale_reason(
-            "feat/active",
-            merged=frozenset(),
-            gone=frozenset(),
-            target="main",
-        )
+    def test_returns_none_for_non_stale(self):
+        """Verify None when no flags are set."""
+        reason = _classify_stale(is_gone=False, is_merged=False, is_empty_branch=False)
         assert reason is None

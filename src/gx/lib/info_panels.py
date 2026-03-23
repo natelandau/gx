@@ -103,12 +103,21 @@ def _git_dir_size(root: Path) -> str:
 def _last_fetch_time(root: Path) -> str:
     """Return a human-readable time since the last fetch.
 
-    Reads the mtime of .git/FETCH_HEAD to determine when the last fetch occurred.
+    Uses git rev-parse to locate the git directory so this works correctly
+    in worktrees and repos with non-standard GIT_DIR.
 
     Args:
         root: The repository root path.
     """
-    fetch_head = root / ".git" / "FETCH_HEAD"
+    git_dir_result = git("rev-parse", "--git-common-dir")
+    if not git_dir_result.success:
+        return "Never"
+
+    git_dir = Path(git_dir_result.stdout)
+    if not git_dir.is_absolute():
+        git_dir = (root / git_dir).resolve()
+
+    fetch_head = git_dir / "FETCH_HEAD"
     if not fetch_head.exists():
         return "Never"
 

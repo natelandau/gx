@@ -13,7 +13,6 @@ Usage:
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -25,6 +24,7 @@ from gx.lib.branch import (
     is_empty,
     merged_branches,
 )
+from gx.lib.git import git
 from gx.lib.worktree import list_worktrees
 
 if TYPE_CHECKING:
@@ -49,43 +49,16 @@ class CleanCandidate:
     worktree: WorktreeInfo | None = None
 
 
-def _stale_reason(
-    branch: str,
-    merged: frozenset[str],
-    gone: frozenset[str],
-    target: str,
-) -> StaleReason | None:
-    """Determine why a branch is stale, or None if it isn't.
+def _classify_stale(*, is_gone: bool, is_merged: bool, is_empty_branch: bool) -> StaleReason | None:
+    """Determine why a branch is stale based on three status flags.
 
-    Args:
-        branch: The branch name to check.
-        merged: Pre-computed set of merged branches.
-        gone: Pre-computed set of gone branches.
-        target: The default branch to check emptiness against.
+    Priority: gone > merged > empty. Returns None if none apply.
     """
-    if branch in gone:
+    if is_gone:
         return "gone"
-    if branch in merged:
+    if is_merged:
         return "merged"
-    if is_empty(branch, target):
-        return "empty"
-    return None
-
-
-def _worktree_stale_reason(wt: WorktreeInfo) -> StaleReason | None:
-    """Determine why a worktree's branch is stale using its pre-computed flags.
-
-    Args:
-        wt: The worktree to evaluate.
-
-    Returns:
-        A reason string ('gone', 'merged', or 'empty'), or None if not stale.
-    """
-    if wt.is_gone:
-        return "gone"
-    if wt.is_merged:
-        return "merged"
-    if wt.is_empty:
+    if is_empty_branch:
         return "empty"
     return None
 
@@ -93,27 +66,14 @@ def _worktree_stale_reason(wt: WorktreeInfo) -> StaleReason | None:
 def _is_worktree_dirty(path: Path) -> bool:
     """Check if a worktree has uncommitted changes.
 
-    Uses subprocess directly because `git -C <path> status` puts "-C" as
-    args[0], which the git() wrapper misclassifies as mutating in dry-run mode.
-    Dirty checks are always read-only and must always execute.
-
     Args:
         path: The worktree directory path to inspect.
 
     Returns:
         True if there are uncommitted changes, False otherwise.
     """
-    try:
-        result = subprocess.run(  # noqa: S603
-            ["git", "-C", str(path), "status", "--porcelain"],  # noqa: S607
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        return result.returncode == 0 and bool(result.stdout.strip())
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return False
+    result = git("status", "--porcelain", cwd=path)
+    return result.success and bool(result.stdout)
 
 
 class StaleAnalyzer:
@@ -168,7 +128,9 @@ class StaleAnalyzer:
             if wt.branch in self.protected:
                 continue
 
-            reason = _worktree_stale_reason(wt)
+            reason = _classify_stale(
+                is_gone=wt.is_gone, is_merged=wt.is_merged, is_empty_branch=wt.is_empty
+            )
             if reason is None:
                 continue
 
@@ -201,7 +163,13 @@ class StaleAnalyzer:
             if branch in self.protected or branch in worktree_branches:
                 continue
 
-            reason = _stale_reason(branch, merged, gone, target)
+            reason = _classify_stale(
+                is_gone=branch in gone,
+                is_merged=branch in merged,
+                is_empty_branch=branch not in gone
+                and branch not in merged
+                and is_empty(branch, target),
+            )
             if reason is None:
                 continue
 

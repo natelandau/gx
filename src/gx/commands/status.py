@@ -6,28 +6,20 @@ from typing import TYPE_CHECKING
 
 import typer
 from rich.panel import Panel
-from rich.text import Text
 
 from gx.lib.branch import collect_branch_data, current_branch
 
 if TYPE_CHECKING:
+    from rich.text import Text
     from rich.tree import Tree
 from gx.lib.console import console, error
 from gx.lib.display import render_branch_panel
 from gx.lib.git import check_git_repo, git, repo_root
-from gx.lib.status_panel import StatusPanel
+from gx.lib.status_panel import StatusPanel, _info_text
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
-
-
-def _info_text(message: str) -> Text:
-    """Build an info-styled Text with checkmark marker."""
-    text = Text()
-    text.append("\u2713", style="info.marker")
-    text.append(f"  {message}", style="info.message")
-    return text
 
 
 def _print_status_output(
