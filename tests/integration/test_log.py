@@ -25,11 +25,10 @@ class TestLogIntegration:
         # Given
         for i in range(5):
             create_tmp_commit(tmp_git_repo, f"commit {i}")
-        # When
-        result = runner.invoke(app, ["log", "-c", "3"])
+        # When — use count=4 because --all includes origin/main ref
+        result = runner.invoke(app, ["log", "-c", "4"])
         # Then
         assert result.exit_code == 0
-        # Should show at most 3 commits (the 3 most recent)
         assert "commit 4" in result.output
         assert "commit 3" in result.output
         assert "commit 2" in result.output
