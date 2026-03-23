@@ -98,38 +98,6 @@ def mock_clean_current_branch(mocker):
 
 
 @pytest.fixture
-def mock_clean_default_branch(mocker):
-    """Patch default_branch() at the clean command's usage site, returning 'main' by default."""
-    return mocker.patch("gx.commands.clean.default_branch", autospec=True, return_value="main")
-
-
-@pytest.fixture
-def mock_clean_list_worktrees(mocker):
-    """Patch list_worktrees() at the clean command's usage site."""
-    return mocker.patch("gx.commands.clean.list_worktrees", autospec=True, return_value=[])
-
-
-@pytest.fixture
-def mock_clean_merged_branches(mocker):
-    """Patch merged_branches() at the clean command's usage site."""
-    return mocker.patch(
-        "gx.commands.clean.merged_branches", autospec=True, return_value=frozenset()
-    )
-
-
-@pytest.fixture
-def mock_clean_gone_branches(mocker):
-    """Patch gone_branches() at the clean command's usage site."""
-    return mocker.patch("gx.commands.clean.gone_branches", autospec=True, return_value=frozenset())
-
-
-@pytest.fixture
-def mock_clean_has_upstream_branch(mocker):
-    """Patch has_upstream_branch() at the clean command's usage site."""
-    return mocker.patch("gx.commands.clean.has_upstream_branch", autospec=True, return_value=True)
-
-
-@pytest.fixture
 def mock_status_git(mocker):
     """Patch git() at the status command's usage site."""
     return mocker.patch("gx.commands.status.git", autospec=True)

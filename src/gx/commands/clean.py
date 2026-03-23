@@ -2,207 +2,26 @@
 
 from __future__ import annotations
 
-import subprocess
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
 import typer
 from rich.prompt import Confirm
 
-from gx.lib.branch import (
-    all_local_branches,
-    current_branch,
-    default_branch,
-    gone_branches,
-    has_upstream_branch,
-    is_empty,
-    merged_branches,
-)
+from gx.lib.branch import current_branch
 from gx.lib.config import config
 from gx.lib.console import set_verbosity, step, step_result, warning
 from gx.lib.git import check_git_repo, get_dry_run, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
-from gx.lib.worktree import WorktreeInfo, list_worktrees, remove_worktree
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from gx.constants import StaleReason
+from gx.lib.stale_analyzer import CleanCandidate, StaleAnalyzer
+from gx.lib.worktree import remove_worktree
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
 
 
-@dataclass(frozen=True)
-class CleanCandidate:
-    """A branch or worktree identified for cleanup.
-
-    Attributes:
-        branch: The branch name.
-        reason: Why it's stale ('merged', 'gone', or 'empty').
-        worktree: The WorktreeInfo if this candidate is a worktree, None for standalone branches.
-    """
-
-    branch: str
-    reason: StaleReason
-    worktree: WorktreeInfo | None = None
-
-
 def _fetch() -> None:
     """Fetch from remote with prune to update tracking refs."""
     with step("Fetch with prune"):
         git("fetch", "--prune").raise_on_error()
-
-
-def _stale_reason(
-    branch: str,
-    merged: frozenset[str],
-    gone: frozenset[str],
-    target: str,
-) -> StaleReason | None:
-    """Determine why a branch is stale, or None if it isn't.
-
-    Args:
-        branch: The branch name to check.
-        merged: Pre-computed set of merged branches.
-        gone: Pre-computed set of gone branches.
-        target: The default branch to check emptiness against.
-    """
-    if branch in gone:
-        return "gone"
-    if branch in merged:
-        return "merged"
-    if is_empty(branch, target):
-        return "empty"
-    return None
-
-
-def _is_worktree_dirty(path: Path) -> bool:
-    """Check if a worktree has uncommitted changes.
-
-    Uses subprocess directly because `git -C <path> status` puts "-C" as
-    args[0], which the git() wrapper misclassifies as mutating in dry-run mode.
-    Dirty checks are always read-only and must always execute.
-
-    Args:
-        path: The worktree directory path to inspect.
-
-    Returns:
-        True if there are uncommitted changes, False otherwise.
-    """
-    try:
-        result = subprocess.run(  # noqa: S603
-            ["git", "-C", str(path), "status", "--porcelain"],  # noqa: S607
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        return result.returncode == 0 and bool(result.stdout.strip())
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return False
-
-
-def _worktree_stale_reason(wt: WorktreeInfo) -> StaleReason | None:
-    """Determine why a worktree's branch is stale using its pre-computed flags.
-
-    Args:
-        wt: The worktree to evaluate.
-
-    Returns:
-        A reason string ('gone', 'merged', or 'empty'), or None if not stale.
-    """
-    if wt.is_gone:
-        return "gone"
-    if wt.is_merged:
-        return "merged"
-    if wt.is_empty:
-        return "empty"
-    return None
-
-
-def _stale_worktrees(
-    *,
-    force: bool,
-    protected: frozenset[str],
-) -> tuple[list[CleanCandidate], list[CleanCandidate]]:
-    """Identify stale worktrees for cleanup.
-
-    Uses the pre-computed is_merged/is_gone/is_empty flags from list_worktrees()
-    to avoid redundant subprocess calls.
-
-    Args:
-        force: If True, include dirty worktrees as candidates instead of skipping them.
-        protected: Branch names that must never be cleaned.
-
-    Returns:
-        A tuple of (candidates, skipped) where skipped contains dirty worktrees
-        when force=False.
-    """
-    worktrees = list_worktrees()
-    if not worktrees:
-        return [], []
-
-    candidates: list[CleanCandidate] = []
-    skipped: list[CleanCandidate] = []
-
-    for wt in worktrees:
-        if wt.is_main or wt.is_bare or wt.branch is None:
-            continue
-
-        if wt.branch in protected:
-            continue
-
-        reason = _worktree_stale_reason(wt)
-        if reason is None:
-            continue
-
-        # gone implies its upstream is deleted; otherwise verify upstream exists
-        if reason != "gone" and not has_upstream_branch(wt.branch):
-            continue
-
-        candidate = CleanCandidate(branch=wt.branch, reason=reason, worktree=wt)
-
-        if _is_worktree_dirty(wt.path) and not force:
-            skipped.append(candidate)
-        else:
-            candidates.append(candidate)
-
-    return candidates, skipped
-
-
-def _stale_branches(
-    *, worktree_branches: set[str], protected: frozenset[str]
-) -> list[CleanCandidate]:
-    """Identify stale standalone branches (not tied to a worktree).
-
-    Args:
-        worktree_branches: Branches already covered by stale worktree candidates.
-        protected: Branch names that must never be cleaned.
-    """
-    target = default_branch()
-    merged = merged_branches(target)
-    gone = gone_branches()
-
-    all_branches = all_local_branches()
-    candidates: list[CleanCandidate] = []
-
-    for branch in sorted(all_branches):
-        if branch in protected or branch in worktree_branches:
-            continue
-
-        reason = _stale_reason(branch, merged, gone, target)
-        if reason is None:
-            continue
-
-        # Upstream requirement: gone implies upstream; otherwise check explicitly
-        if reason != "gone" and not has_upstream_branch(branch):
-            continue
-
-        candidates.append(CleanCandidate(branch=branch, reason=reason))
-
-    return candidates
 
 
 def _display_candidates(
@@ -345,9 +164,8 @@ def clean(
     cur = current_branch()
     protected = config.protected_branches | (frozenset({cur}) if cur else frozenset())
 
-    wt_candidates, wt_skipped = _stale_worktrees(force=force, protected=protected)
-    worktree_branch_names = {c.branch for c in wt_candidates} | {c.branch for c in wt_skipped}
-    br_candidates = _stale_branches(worktree_branches=worktree_branch_names, protected=protected)
+    analyzer = StaleAnalyzer(protected, force=force)
+    wt_candidates, br_candidates, wt_skipped = analyzer.analyze()
 
     if not wt_candidates and not br_candidates:
         if wt_skipped:
