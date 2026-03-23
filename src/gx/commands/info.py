@@ -18,6 +18,7 @@ from gx.lib.console import console
 from gx.lib.display import kv_grid, render_branch_panel, render_working_tree_panel
 from gx.lib.git import check_git_repo, git, repo_root
 from gx.lib.github import gh, gh_available, is_github_remote
+from gx.lib.log_panel import LogPanel
 from gx.lib.worktree import list_worktrees
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
@@ -26,8 +27,6 @@ _BYTES_PER_UNIT = 1024
 _SECONDS_PER_MINUTE = 60
 _SECONDS_PER_HOUR = 3600
 _SECONDS_PER_DAY = 86400
-_LOG_FORMAT = "%h%x00%s%x00%an%x00%ar"
-_LOG_FIELD_COUNT = 4
 
 app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
 
@@ -313,31 +312,6 @@ def _stash_panel(stashes: dict[str, int]) -> Panel | None:
     return Panel(kv_grid(rows), title="Stashes", border_style="dim")
 
 
-def _log_panel() -> Panel | None:
-    """Build a Rich Panel showing the 5 most recent commits.
-
-    Each row shows the short SHA, commit subject, author name, and relative time.
-    """
-    result = git("log", f"--format={_LOG_FORMAT}", "-5")
-    if not result.success or not result.stdout:
-        return None
-
-    grid = Table.grid(padding=(0, 1))
-    grid.add_column(style="log_sha", width=8, no_wrap=True)
-    grid.add_column()
-    grid.add_column(style="log_author")
-    grid.add_column(style="log_time", justify="right")
-
-    for line in result.stdout.splitlines():
-        fields = line.split("\x00")
-        if len(fields) != _LOG_FIELD_COUNT:
-            continue
-        sha, subject, author, time_ago = fields
-        grid.add_row(sha, subject, author, time_ago)
-
-    return Panel(grid, title="Recent Commits", border_style="dim")
-
-
 def _worktree_panel(root: Path) -> Panel | None:
     """Build a Rich Panel listing non-main worktrees with their paths.
 
@@ -460,6 +434,6 @@ def info(
             untracked=untracked,
         ),
         stashes=_stash_panel(stash_data),
-        log=_log_panel(),
+        log=LogPanel(count=5).render(),
         worktrees=_worktree_panel(root),
     )
