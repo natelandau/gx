@@ -12,7 +12,6 @@ from rich.panel import Panel
 
 from gx.commands.info import (
     _github_panel,
-    _log_panel,
     _remote_to_url,
     _stash_panel,
     _worktree_panel,
@@ -162,50 +161,6 @@ class TestStashPanel:
         """Verify Panel returned for a single stash entry."""
         result = _stash_panel({"main": 1})
         assert isinstance(result, Panel)
-
-
-class TestLogPanel:
-    """Tests for the recent commits log panel."""
-
-    def test_returns_panel_with_commits(self):
-        """Verify Panel returned when git log returns valid NUL-delimited output."""
-        log_output = (
-            "abc1234\x00feat: add something\x00Alice\x002 hours ago\n"
-            "def5678\x00fix: correct bug\x00Bob\x001 day ago"
-        )
-        git_success = GitResult(
-            command="git log ...",
-            returncode=0,
-            stdout=log_output,
-            stderr="",
-        )
-        with patch("gx.commands.info.git", return_value=git_success):
-            result = _log_panel()
-        assert isinstance(result, Panel)
-
-    def test_returns_none_when_no_commits(self):
-        """Verify None returned when git log fails or returns no output."""
-        git_fail = GitResult(
-            command="git log ...",
-            returncode=128,
-            stdout="",
-            stderr="fatal: not a git repository",
-        )
-        with patch("gx.commands.info.git", return_value=git_fail):
-            result = _log_panel()
-        assert result is None
-
-    def test_returns_none_when_empty_output(self):
-        """Verify None returned when git log succeeds but has no output."""
-        git_empty = GitResult(
-            command="git log ...",
-            returncode=0,
-            stdout="",
-            stderr="",
-        )
-        with patch("gx.commands.info.git", return_value=git_empty):
-            result = _log_panel()
-        assert result is None
 
 
 class TestWorktreePanel:
