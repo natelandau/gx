@@ -36,17 +36,24 @@ src/gx/
     constants.py             # Package constants, Verbosity enum
     commands/
         __init__.py
-        clean.py             # Branch/worktree cleanup
+        clean.py             # Branch/worktree cleanup (UI, confirmation, removal)
         done.py              # Post-merge cleanup: checkout main, pull, delete branch
         feat.py              # Feature branch/worktree management
         pull.py              # Pull subcommand
         push.py              # Push subcommand
     lib/
         __init__.py
-        console.py           # Global Console, theme, leveled print helpers
-        git.py               # Git subprocess wrapper, GitResult, dry-run
-        options.py           # Shared Typer options (VERBOSE_OPTION, DRY_RUN_OPTION)
         branch.py            # Branch queries: current, default, merged/gone/empty
+        config.py            # User config (GxConfig), TOML loading, env overrides
+        console.py           # Global Console, theme, leveled print helpers
+        display.py           # Shared Rich renderers: branch panel, working tree panel
+        git.py               # Git subprocess wrapper, GitResult, dry-run
+        github.py            # GitHub CLI wrapper (gh)
+        info_panels.py       # RepoPanel, GitHubPanel, StashPanel, WorktreePanel classes
+        log_panel.py         # LogPanel class: git log rendering with inline ref badges
+        options.py           # Shared Typer options (VERBOSE_OPTION, DRY_RUN_OPTION)
+        stale_analyzer.py    # StaleAnalyzer class: identifies stale branches/worktrees
+        status_panel.py      # StatusPanel class: porcelain parsing + file tree rendering
         worktree.py          # Worktree management: list (enriched), create, remove
 ```
 
