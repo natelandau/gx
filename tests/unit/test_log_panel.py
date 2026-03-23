@@ -30,10 +30,12 @@ class TestParseLogEntries:
         assert entries[0].author == "Nate Landau"
         assert entries[0].branches == ("main",)
         assert entries[0].tags == ()
+        assert entries[0].is_head is True
         assert entries[0].body == ""
         assert entries[1].sha == "cdd86d0"
         assert entries[1].branches == ()
         assert entries[1].tags == ()
+        assert entries[1].is_head is False
 
     def test_parses_tags(self):
         """Verify tag refs are parsed into tags list."""
@@ -73,6 +75,7 @@ class TestParseLogEntries:
         entries = _parse_entries(raw, has_body=False)
         # Then
         assert entries[0].branches == ("main",)
+        assert entries[0].is_head is True
 
     def test_parses_full_format_with_body(self):
         """Verify parsing of format with multi-line commit body."""

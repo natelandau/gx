@@ -41,6 +41,7 @@ class LogEntry:
     branches: tuple[str, ...] = field(default_factory=tuple)
     tags: tuple[str, ...] = field(default_factory=tuple)
     body: str = ""
+    is_head: bool = False
 
 
 def _make_table() -> Table:
@@ -88,8 +89,8 @@ def _add_row(table: Table, entry: LogEntry, *, dim: bool = False) -> None:
     )
 
 
-def _parse_refs(raw_refs: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Parse a raw ref decoration string into branches and tags tuples.
+def _parse_refs(raw_refs: str) -> tuple[tuple[str, ...], tuple[str, ...], bool]:
+    """Parse a raw ref decoration string into branches, tags, and HEAD flag.
 
     Filters out HEAD, HEAD -> X, and remote refs.
 
@@ -97,21 +98,25 @@ def _parse_refs(raw_refs: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         raw_refs: The raw %D output for a single commit.
 
     Returns:
-        A (branches, tags) tuple.
+        A (branches, tags, is_head) tuple.
     """
     branches: list[str] = []
     tags: list[str] = []
+    is_head = False
 
     if not raw_refs.strip():
-        return (), ()
+        return (), (), False
 
     for raw_ref in raw_refs.split(", "):
         ref = raw_ref.strip()
         if ref.startswith("HEAD -> "):
             branches.append(ref.removeprefix("HEAD -> "))
+            is_head = True
+        elif ref == "HEAD":
+            is_head = True
         elif ref.startswith("tag: "):
             tags.append(ref.removeprefix("tag: "))
-        elif ref != "HEAD":
+        else:
             parts = ref.split("/", 1)
             is_remote = (
                 len(parts) == _REMOTE_REF_PARTS
@@ -121,7 +126,7 @@ def _parse_refs(raw_refs: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
             if not is_remote:
                 branches.append(ref)
 
-    return tuple(branches), tuple(tags)
+    return tuple(branches), tuple(tags), is_head
 
 
 def _parse_entries(raw: str, *, has_body: bool) -> list[LogEntry]:
@@ -153,7 +158,7 @@ def _parse_entries(raw: str, *, has_body: bool) -> list[LogEntry]:
             continue
 
         raw_refs = fields[4].strip()
-        branches, tags = _parse_refs(raw_refs)
+        branches, tags, is_head = _parse_refs(raw_refs)
         body = fields[5].strip() if has_body else ""
 
         entries.append(
@@ -165,6 +170,7 @@ def _parse_entries(raw: str, *, has_body: bool) -> list[LogEntry]:
                 branches=branches,
                 tags=tags,
                 body=body,
+                is_head=is_head,
             )
         )
 
@@ -202,9 +208,6 @@ class LogPanel:
             A Rich Panel with inline ref badges, or None if no commits found
             or git fails.
         """
-        head_result = git("rev-parse", "--short", "HEAD")
-        head_sha = head_result.stdout.strip() if head_result.success else None
-
         fmt = _FULL_FORMAT if self.show_body else _DEFAULT_FORMAT
         result = git("log", "--all", f"-n{self.count}", f"--format={fmt}")
         if not result.success or not result.stdout:
@@ -214,13 +217,13 @@ class LogPanel:
         if not entries:
             return None
 
-        return self._build_panel(entries, head_sha=head_sha)
+        return self._build_panel(entries)
 
-    def _build_panel(self, entries: list[LogEntry], head_sha: str | None = None) -> Panel:
+    def _build_panel(self, entries: list[LogEntry]) -> Panel:
         """Build the Rich Panel from parsed log entries."""
         head_idx = next(
-            (i for i, e in enumerate(entries) if e.sha == head_sha),
-            0,  # HEAD not in view or no SHA — nothing dimmed
+            (i for i, e in enumerate(entries) if e.is_head),
+            0,  # HEAD not in view — nothing dimmed
         )
 
         if not self.show_body:
