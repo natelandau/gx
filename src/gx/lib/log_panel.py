@@ -221,6 +221,8 @@ class LogPanel:
             _add_row(row_table, entry)
             if entry.body:
                 row_table.add_row("", "", Text(entry.body, style="log_body"), "")
-            renderables.append(row_table)
-            renderables.append(Text(""))
+                renderables.append(row_table)
+                renderables.append(Text(""))
+            else:
+                renderables.append(row_table)
         return Panel(Group(*renderables), title=self.title, border_style="dim")
