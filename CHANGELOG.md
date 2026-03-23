@@ -1,3 +1,13 @@
+## v0.5.0 (2026-03-23)
+
+### Feat
+
+- **log**: add inline ref badges to log output
+
+### Refactor
+
+- extract panel and analyzer classes into lib/ (#7)
+
 ## v0.4.0 (2026-03-22)
 
 ### Feat
