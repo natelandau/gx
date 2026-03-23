@@ -54,4 +54,6 @@ READ_ONLY_GIT_COMPOUND_COMMANDS: dict[str, frozenset[str]] = {
     "worktree": frozenset({"list"}),
 }
 
+KNOWN_REMOTE_NAMES: frozenset[str] = frozenset({"origin", "upstream", "fork"})
+
 StaleReason = Literal["gone", "merged", "empty"]

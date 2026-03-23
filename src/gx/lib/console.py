@@ -65,6 +65,8 @@ GX_THEME = Theme(
         "log_ref_tag": "bold yellow",
         "log_body": "dim",
         "log_graph": "dim",
+        "ref.branch": "reverse bold magenta",
+        "ref.tag": "reverse bold cyan",
         "step.success": "green",
         "step.fail": "red",
         "step.message": "bold default",
