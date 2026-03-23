@@ -7,7 +7,7 @@ from io import StringIO
 from rich.console import Console
 
 from gx.lib.console import GX_THEME
-from gx.lib.log_panel import LogPanel
+from gx.lib.log_panel import LogPanel, _parse_entries
 
 
 class TestParseLogEntries:
@@ -21,47 +21,47 @@ class TestParseLogEntries:
             "\x01cdd86d0\x003 days ago\x00add version flag\x00Nate Landau\x00"
         )
         # When
-        entries = LogPanel._parse_entries(raw, has_body=False)
+        entries = _parse_entries(raw, has_body=False)
         # Then
         assert len(entries) == 2
         assert entries[0].sha == "9c96da2"
         assert entries[0].relative_time == "3 days ago"
         assert entries[0].subject == "bump release"
         assert entries[0].author == "Nate Landau"
-        assert entries[0].branches == ["main"]
-        assert entries[0].tags == []
+        assert entries[0].branches == ("main",)
+        assert entries[0].tags == ()
         assert entries[0].body == ""
         assert entries[1].sha == "cdd86d0"
-        assert entries[1].branches == []
-        assert entries[1].tags == []
+        assert entries[1].branches == ()
+        assert entries[1].tags == ()
 
     def test_parses_tags(self):
         """Verify tag refs are parsed into tags list."""
         # Given
         raw = "\x01abc1234\x002 hours ago\x00bump\x00Author\x00tag: v1.0, tag: v1.0.1"
         # When
-        entries = LogPanel._parse_entries(raw, has_body=False)
+        entries = _parse_entries(raw, has_body=False)
         # Then
-        assert entries[0].tags == ["v1.0", "v1.0.1"]
-        assert entries[0].branches == []
+        assert entries[0].tags == ("v1.0", "v1.0.1")
+        assert entries[0].branches == ()
 
     def test_parses_branches_with_slashes(self):
         """Verify local branches with slashes are not treated as remotes."""
         # Given
         raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00feat/my-feature"
         # When
-        entries = LogPanel._parse_entries(raw, has_body=False)
+        entries = _parse_entries(raw, has_body=False)
         # Then
-        assert entries[0].branches == ["feat/my-feature"]
+        assert entries[0].branches == ("feat/my-feature",)
 
     def test_filters_out_remotes(self):
         """Verify remote refs are excluded."""
         # Given
         raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00main, origin/main, upstream/main"
         # When
-        entries = LogPanel._parse_entries(raw, has_body=False)
+        entries = _parse_entries(raw, has_body=False)
         # Then
-        assert entries[0].branches == ["main"]
+        assert entries[0].branches == ("main",)
         assert "origin/main" not in entries[0].branches
         assert "upstream/main" not in entries[0].branches
 
@@ -70,9 +70,9 @@ class TestParseLogEntries:
         # Given
         raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00HEAD -> main, HEAD"
         # When
-        entries = LogPanel._parse_entries(raw, has_body=False)
+        entries = _parse_entries(raw, has_body=False)
         # Then
-        assert entries[0].branches == ["main"]
+        assert entries[0].branches == ("main",)
 
     def test_parses_full_format_with_body(self):
         """Verify parsing of format with multi-line commit body."""
@@ -83,7 +83,7 @@ class TestParseLogEntries:
             "\x01cdd86d0\x003 days ago\x00add flag\x00Nate\x00\x00"
         )
         # When
-        entries = LogPanel._parse_entries(raw, has_body=True)
+        entries = _parse_entries(raw, has_body=True)
         # Then
         assert len(entries) == 2
         assert entries[0].body == "Line one\nLine two"
@@ -92,7 +92,7 @@ class TestParseLogEntries:
     def test_empty_output(self):
         """Verify empty list for empty git output."""
         # When
-        entries = LogPanel._parse_entries("", has_body=False)
+        entries = _parse_entries("", has_body=False)
         # Then
         assert entries == []
 
