@@ -72,14 +72,20 @@ def _render_refs(entry: LogEntry) -> Text:
     return refs
 
 
-def _add_row(table: Table, entry: LogEntry) -> None:
+def _add_row(table: Table, entry: LogEntry, *, dim: bool = False) -> None:
     """Add a single commit row with inline ref badges to the table."""
+    style = "dim" if dim else None
     subject_col = Text()
     if entry.branches or entry.tags:
         subject_col.append_text(_render_refs(entry))
         subject_col.append(" ")
-    subject_col.append(entry.subject)
-    table.add_row(entry.sha, entry.relative_time, subject_col, entry.author)
+    subject_col.append(entry.subject, style=style)
+    table.add_row(
+        Text(entry.sha, style=style or "log_sha"),
+        Text(entry.relative_time, style=style or "log_time"),
+        subject_col,
+        Text(entry.author, style=style or "log_author"),
+    )
 
 
 def _parse_refs(raw_refs: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -196,8 +202,11 @@ class LogPanel:
             A Rich Panel with inline ref badges, or None if no commits found
             or git fails.
         """
+        head_result = git("rev-parse", "--short", "HEAD")
+        head_sha = head_result.stdout.strip() if head_result.success else None
+
         fmt = _FULL_FORMAT if self.show_body else _DEFAULT_FORMAT
-        result = git("log", f"-n{self.count}", f"--format={fmt}")
+        result = git("log", "--all", f"-n{self.count}", f"--format={fmt}")
         if not result.success or not result.stdout:
             return None
 
@@ -205,22 +214,29 @@ class LogPanel:
         if not entries:
             return None
 
-        return self._build_panel(entries)
+        return self._build_panel(entries, head_sha=head_sha)
 
-    def _build_panel(self, entries: list[LogEntry]) -> Panel:
+    def _build_panel(self, entries: list[LogEntry], head_sha: str | None = None) -> Panel:
         """Build the Rich Panel from parsed log entries."""
+        head_idx = next(
+            (i for i, e in enumerate(entries) if e.sha == head_sha),
+            0,  # HEAD not in view or no SHA — nothing dimmed
+        )
+
         if not self.show_body:
             table = _make_table()
-            for entry in entries:
-                _add_row(table, entry)
+            for i, entry in enumerate(entries):
+                _add_row(table, entry, dim=i < head_idx)
             return Panel(table, title=self.title, border_style="dim")
 
         renderables: list[Table | Text] = []
-        for entry in entries:
+        for i, entry in enumerate(entries):
+            dim = i < head_idx
             row_table = _make_table()
-            _add_row(row_table, entry)
+            _add_row(row_table, entry, dim=dim)
             if entry.body:
-                row_table.add_row("", "", Text(entry.body, style="log_body"), "")
+                body_style = "dim" if dim else "log_body"
+                row_table.add_row("", "", Text(entry.body, style=body_style), "")
                 renderables.append(row_table)
                 renderables.append(Text(""))
             else:
