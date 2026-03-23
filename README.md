@@ -8,6 +8,7 @@ A CLI that wraps common git commands with sensible defaults, safety guards, and 
 - Push with dirty-tree warnings and default-branch confirmation
 - Pull with automatic stash/unstash and rebase
 - Batch cleanup of merged, gone, and empty branches
+- Pretty commit log across all branches with inline branch and tag badges
 - Rich repository dashboard with metadata, branches, GitHub info, and more
 - Dry-run mode (`-n`) on every command
 
@@ -57,6 +58,17 @@ gx status                # full dashboard
 gx status -F             # file tree only
 gx status -b             # branch table only
 gx status -a             # include inactive branches
+```
+
+### `gx log`
+
+Show a color-coded commit log inside a Rich panel. Commits from all branches are included, with inline badges marking branch tips and tags. Commits ahead of your current branch render dim so you can see where you are relative to other branches.
+
+```sh
+gx log                   # last 15 commits
+gx log -c 30             # last 30 commits
+gx log --full             # include commit bodies
+gx log --graph            # branch/merge ASCII graph
 ```
 
 ### `gx feat`
