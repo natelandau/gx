@@ -4,7 +4,7 @@
         "Programming Language :: Python :: 3.13",
         "Programming Language :: Python :: 3.14",
     ]
-    dependencies = ["rich>=14.3.3", "typer>=0.24.1"]
+    dependencies = ["rich>=15.0.0", "typer>=0.25.1"]
     description = "A CLI that wraps common git commands with sensible defaults, safety guards, and helpful summaries."
     license = { file = "LICENSE" }
     name = "git-gx"
