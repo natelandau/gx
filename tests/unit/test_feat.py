@@ -357,8 +357,8 @@ class TestFeatWorktreeMode:
 
         # Then create_worktree was called with correct path and the remote-tracking start point
         mock_create.assert_called_once_with(
-            tmp_path / ".worktrees" / "feat" / "1",
-            "feat/1",
+            path=tmp_path / ".worktrees" / "feat" / "1",
+            branch="feat/1",
             start_point="origin/main",
         )
 
