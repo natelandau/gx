@@ -6,8 +6,7 @@ import click
 import pytest
 import typer
 
-from gx.commands.pull import has_submodules, is_dirty, is_rebase_in_progress, pull
-from tests.conftest import make_tmp_dirty
+from gx.commands.pull import pull
 
 from .conftest import _fail, _ok
 
@@ -24,7 +23,7 @@ class TestPullGuardRails:
     ):
         """Verify pull aborts with error when in detached HEAD state."""
         # Given
-        mocker.patch("gx.commands.pull.current_branch", autospec=True, return_value=None)
+        mocker.patch("gx.lib.sync.current_branch", autospec=True, return_value=None)
 
         # When
         ctx = typer.Context(click.Command("pull"))
@@ -33,7 +32,7 @@ class TestPullGuardRails:
 
         # Then
         captured = capsys.readouterr()
-        assert "detached HEAD" in captured.err
+        assert "HEAD is detached" in captured.err
 
     def test_no_upstream_aborts(
         self,
@@ -43,8 +42,8 @@ class TestPullGuardRails:
     ):
         """Verify pull aborts when branch has no upstream configured."""
         # Given
-        mocker.patch("gx.commands.pull.current_branch", autospec=True, return_value="feature")
-        mocker.patch("gx.commands.pull.tracking_branch", autospec=True, return_value=None)
+        mocker.patch("gx.lib.sync.current_branch", autospec=True, return_value="feature")
+        mocker.patch("gx.lib.sync.tracking_branch", autospec=True, return_value=None)
 
         # When
         ctx = typer.Context(click.Command("pull"))
@@ -70,8 +69,8 @@ class TestPullStash:
     ):
         """Verify dirty working tree is stashed and restored after pull."""
         # Given
-        mocker.patch("gx.commands.pull.is_dirty", autospec=True, return_value=True)
-        mocker.patch("gx.commands.pull.has_submodules", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=True)
+        mocker.patch("gx.lib.workspace.has_submodules", autospec=True, return_value=False)
         mock_git.side_effect = [
             _ok(),  # stash --include-untracked
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
@@ -101,8 +100,8 @@ class TestPullStash:
     ):
         """Verify no stash calls when working tree is clean."""
         # Given
-        mocker.patch("gx.commands.pull.is_dirty", autospec=True, return_value=False)
-        mocker.patch("gx.commands.pull.has_submodules", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.has_submodules", autospec=True, return_value=False)
         mock_git.side_effect = [
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
             _ok(),  # fetch
@@ -130,8 +129,8 @@ class TestPullStash:
     ):
         """Verify warning about stashed changes when pop fails."""
         # Given
-        mocker.patch("gx.commands.pull.is_dirty", autospec=True, return_value=True)
-        mocker.patch("gx.commands.pull.has_submodules", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=True)
+        mocker.patch("gx.lib.workspace.has_submodules", autospec=True, return_value=False)
         mock_git.side_effect = [
             _ok(),  # stash --include-untracked
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
@@ -163,7 +162,7 @@ class TestPullFetchAndRebase:
     ):
         """Verify rollback restores stash when fetch fails on dirty tree."""
         # Given
-        mocker.patch("gx.commands.pull.is_dirty", autospec=True, return_value=True)
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=True)
         mock_git.side_effect = [
             _ok(),  # stash --include-untracked
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
@@ -192,8 +191,8 @@ class TestPullFetchAndRebase:
     ):
         """Verify error message when pull --rebase fails on clean tree."""
         # Given
-        mocker.patch("gx.commands.pull.is_dirty", autospec=True, return_value=False)
-        mocker.patch("gx.commands.pull.is_rebase_in_progress", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=False)
+        mocker.patch("gx.lib.sync.is_rebase_in_progress", autospec=True, return_value=False)
         mock_git.side_effect = [
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
             _ok(),  # fetch
@@ -220,8 +219,8 @@ class TestPullFetchAndRebase:
     ):
         """Verify rebase conflict guidance is shown when rebase is in progress."""
         # Given
-        mocker.patch("gx.commands.pull.is_dirty", autospec=True, return_value=False)
-        mocker.patch("gx.commands.pull.is_rebase_in_progress", autospec=True, return_value=True)
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=False)
+        mocker.patch("gx.lib.sync.is_rebase_in_progress", autospec=True, return_value=True)
         mock_git.side_effect = [
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
             _ok(),  # fetch
@@ -252,8 +251,8 @@ class TestPullSubmodules:
     ):
         """Verify submodule update is called when .gitmodules exists."""
         # Given
-        mocker.patch("gx.commands.pull.is_dirty", autospec=True, return_value=False)
-        mocker.patch("gx.commands.pull.has_submodules", autospec=True, return_value=True)
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.has_submodules", autospec=True, return_value=True)
         mock_git.side_effect = [
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
             _ok(),  # fetch
@@ -281,8 +280,8 @@ class TestPullSubmodules:
     ):
         """Verify no submodule calls when .gitmodules does not exist."""
         # Given
-        mocker.patch("gx.commands.pull.is_dirty", autospec=True, return_value=False)
-        mocker.patch("gx.commands.pull.has_submodules", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.has_submodules", autospec=True, return_value=False)
         mock_git.side_effect = [
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
             _ok(),  # fetch
@@ -310,8 +309,8 @@ class TestPullSubmodules:
     ):
         """Verify error on submodule update failure."""
         # Given
-        mocker.patch("gx.commands.pull.is_dirty", autospec=True, return_value=False)
-        mocker.patch("gx.commands.pull.has_submodules", autospec=True, return_value=True)
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.has_submodules", autospec=True, return_value=True)
         mock_git.side_effect = [
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
             _ok(),  # fetch
@@ -343,8 +342,8 @@ class TestPullSummary:
     ):
         """Verify commit list is displayed when new commits are pulled."""
         # Given
-        mocker.patch("gx.commands.pull.is_dirty", autospec=True, return_value=False)
-        mocker.patch("gx.commands.pull.has_submodules", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.has_submodules", autospec=True, return_value=False)
         mock_git.side_effect = [
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
             _ok(),  # fetch
@@ -374,8 +373,8 @@ class TestPullSummary:
     ):
         """Verify 'Already up to date' message when HEAD is unchanged."""
         # Given
-        mocker.patch("gx.commands.pull.is_dirty", autospec=True, return_value=False)
-        mocker.patch("gx.commands.pull.has_submodules", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.has_submodules", autospec=True, return_value=False)
         mock_git.side_effect = [
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
             _ok(),  # fetch
@@ -392,87 +391,6 @@ class TestPullSummary:
         assert "Already up to date" in captured.out
 
 
-class TestIsDirty:
-    """Tests for the _is_dirty helper function."""
-
-    def test_dirty_when_changes_exist(self, tmp_git_repo):
-        """Verify is_dirty returns True when working tree has changes."""
-        make_tmp_dirty(tmp_git_repo)
-        assert is_dirty() is True
-
-    def test_clean_when_no_changes(self, tmp_git_repo):
-        """Verify is_dirty returns False when working tree is clean."""
-        assert is_dirty() is False
-
-
-class TestHasSubmodules:
-    """Tests for the _has_submodules helper function."""
-
-    def test_true_when_gitmodules_exists(self, tmp_path, monkeypatch):
-        """Verify _has_submodules returns True when .gitmodules file exists."""
-        # Given a repo root with .git and .gitmodules
-        (tmp_path / ".git").mkdir()
-        (tmp_path / ".gitmodules").touch()
-        monkeypatch.chdir(tmp_path)
-
-        # When
-        result = has_submodules()
-
-        # Then
-        assert result is True
-
-    def test_false_when_no_gitmodules(self, tmp_path, monkeypatch):
-        """Verify _has_submodules returns False when no .gitmodules file."""
-        # Given a repo root with .git but no .gitmodules
-        (tmp_path / ".git").mkdir()
-        monkeypatch.chdir(tmp_path)
-
-        # When
-        result = has_submodules()
-
-        # Then
-        assert result is False
-
-
-class TestIsRebaseInProgress:
-    """Tests for the _is_rebase_in_progress helper function."""
-
-    def test_true_when_rebase_merge_exists(self, mock_git, tmp_path):
-        """Verify True when rebase-merge directory exists."""
-        # Given
-        (tmp_path / "rebase-merge").mkdir()
-        mock_git.return_value = _ok(stdout=str(tmp_path))
-
-        # When
-        result = is_rebase_in_progress()
-
-        # Then
-        assert result is True
-
-    def test_true_when_rebase_apply_exists(self, mock_git, tmp_path):
-        """Verify True when rebase-apply directory exists."""
-        # Given
-        (tmp_path / "rebase-apply").mkdir()
-        mock_git.return_value = _ok(stdout=str(tmp_path))
-
-        # When
-        result = is_rebase_in_progress()
-
-        # Then
-        assert result is True
-
-    def test_false_when_no_rebase_dirs(self, mock_git, tmp_path):
-        """Verify False when no rebase directories exist."""
-        # Given
-        mock_git.return_value = _ok(stdout=str(tmp_path))
-
-        # When
-        result = is_rebase_in_progress()
-
-        # Then
-        assert result is False
-
-
 class TestPullDryRun:
     """Tests for pull command dry-run mode."""
 
@@ -486,8 +404,8 @@ class TestPullDryRun:
     ):
         """Verify all git calls are made in dry-run mode with dirty tree."""
         # Given
-        mocker.patch("gx.commands.pull.is_dirty", autospec=True, return_value=True)
-        mocker.patch("gx.commands.pull.has_submodules", autospec=True, return_value=False)
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=True)
+        mocker.patch("gx.lib.workspace.has_submodules", autospec=True, return_value=False)
         mock_git.side_effect = [
             _ok(),  # stash --include-untracked
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
@@ -518,7 +436,7 @@ class TestPullDryRun:
     ):
         """Verify guard rails still trigger in dry-run mode."""
         # Given
-        mocker.patch("gx.commands.pull.current_branch", autospec=True, return_value=None)
+        mocker.patch("gx.lib.sync.current_branch", autospec=True, return_value=None)
 
         # When
         ctx = typer.Context(click.Command("pull"))
@@ -527,4 +445,4 @@ class TestPullDryRun:
 
         # Then
         captured = capsys.readouterr()
-        assert "detached HEAD" in captured.err
+        assert "HEAD is detached" in captured.err

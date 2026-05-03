@@ -24,12 +24,10 @@ from gx.lib.branch import (
     is_empty,
     merged_branches,
 )
-from gx.lib.git import git
+from gx.lib.workspace import is_dirty
 from gx.lib.worktree import list_worktrees
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from gx.constants import StaleReason
     from gx.lib.worktree import WorktreeInfo
 
@@ -61,19 +59,6 @@ def _classify_stale(*, is_gone: bool, is_merged: bool, is_empty_branch: bool) ->
     if is_empty_branch:
         return "empty"
     return None
-
-
-def _is_worktree_dirty(path: Path) -> bool:
-    """Check if a worktree has uncommitted changes.
-
-    Args:
-        path: The worktree directory path to inspect.
-
-    Returns:
-        True if there are uncommitted changes, False otherwise.
-    """
-    result = git("status", "--porcelain", cwd=path)
-    return result.success and bool(result.stdout)
 
 
 class StaleAnalyzer:
@@ -139,7 +124,7 @@ class StaleAnalyzer:
 
             candidate = CleanCandidate(branch=wt.branch, reason=reason, worktree=wt)
 
-            if _is_worktree_dirty(wt.path) and not self.force:
+            if is_dirty(cwd=wt.path) and not self.force:
                 skipped.append(candidate)
             else:
                 candidates.append(candidate)

@@ -158,7 +158,7 @@ class TestCleanPartialFailure:
                 wt2,
             ],
         )
-        mocker.patch("gx.lib.stale_analyzer._is_worktree_dirty", return_value=False)
+        mocker.patch("gx.lib.stale_analyzer.is_dirty", return_value=False)
         mocker.patch("gx.lib.stale_analyzer.default_branch", return_value="main")
         mocker.patch(
             "gx.lib.stale_analyzer.all_local_branches",

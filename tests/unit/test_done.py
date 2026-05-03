@@ -134,7 +134,7 @@ class TestDoneMode1:
         mocker.patch("gx.commands.done.fetch_and_rebase", autospec=True)
         mocker.patch("gx.commands.done.update_submodules", autospec=True)
         mocker.patch("gx.commands.done.unstash", autospec=True)
-        mocker.patch("gx.commands.done.print_summary", autospec=True)
+        mocker.patch("gx.commands.done.print_pull_summary", autospec=True)
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
         mock_git.side_effect = [
             _ok(),  # checkout main
@@ -173,7 +173,7 @@ class TestDoneMode1:
         mocker.patch("gx.commands.done.fetch_and_rebase", autospec=True)
         mocker.patch("gx.commands.done.update_submodules", autospec=True)
         mocker.patch("gx.commands.done.unstash", autospec=True)
-        mocker.patch("gx.commands.done.print_summary", autospec=True)
+        mocker.patch("gx.commands.done.print_pull_summary", autospec=True)
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
         mock_git.side_effect = [
             _ok(),  # checkout main
@@ -217,7 +217,7 @@ class TestDoneMode2:
         mocker.patch("gx.commands.done.fetch_and_rebase", autospec=True)
         mocker.patch("gx.commands.done.update_submodules", autospec=True)
         mocker.patch("gx.commands.done.unstash", autospec=True)
-        mocker.patch("gx.commands.done.print_summary", autospec=True)
+        mocker.patch("gx.commands.done.print_pull_summary", autospec=True)
 
         wt_path = tmp_path / "worktree"
         wt_path.mkdir()
@@ -344,7 +344,7 @@ class TestDoneVerification:
         mocker.patch("gx.commands.done.fetch_and_rebase", autospec=True)
         mocker.patch("gx.commands.done.update_submodules", autospec=True)
         mocker.patch("gx.commands.done.unstash", autospec=True)
-        mocker.patch("gx.commands.done.print_summary", autospec=True)
+        mocker.patch("gx.commands.done.print_pull_summary", autospec=True)
 
     def test_force_skips_merge_verification(self, mocker, capsys):
         """Verify --force bypasses pr_state, is_gone, and is_merged checks."""

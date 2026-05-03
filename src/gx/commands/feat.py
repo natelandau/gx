@@ -9,6 +9,7 @@ from gx.lib.config import config, resolve_worktree_directory
 from gx.lib.console import debug, error, set_verbosity, step, warning
 from gx.lib.git import check_git_repo, git, repo_root, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
+from gx.lib.workspace import is_dirty
 from gx.lib.worktree import create_worktree
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
@@ -141,7 +142,7 @@ def _create_branch(name: str | None) -> None:
     with step(f"Create branch {feat_branch} from {start_point}"):
         result = git("checkout", "-b", feat_branch, start_point)
         if not result.success:
-            if "would be overwritten" in result.stderr:
+            if is_dirty():
                 error(
                     "Checkout failed due to uncommitted changes that conflict with the target branch"
                 )

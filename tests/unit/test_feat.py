@@ -293,6 +293,7 @@ class TestFeatBranchMode:
         mocker.patch("gx.commands.feat.current_branch", return_value="main")
         mocker.patch("gx.commands.feat.default_branch", return_value="main")
         mocker.patch("gx.commands.feat.branch_exists", return_value=False)
+        mocker.patch("gx.commands.feat.is_dirty", autospec=True, return_value=True)
 
         def side_effect(*args: str, **kwargs: str) -> GitResult:
             if args[0] == "fetch":
@@ -306,7 +307,7 @@ class TestFeatBranchMode:
                     command="git checkout -b feat/1 main",
                     returncode=1,
                     stdout="",
-                    stderr="error: Your local changes to the following files would be overwritten by checkout",
+                    stderr="error: checkout failed",
                 )
             return GitResult(command="", returncode=0, stdout="", stderr="")
 
