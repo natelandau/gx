@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 from gx.lib.branch import collect_branch_data, count_file_statuses, stash_counts
 from gx.lib.console import console
 from gx.lib.display import render_branch_panel, render_working_tree_panel
-from gx.lib.git import check_git_repo, git, repo_root
-from gx.lib.info_panels import GitHubPanel, RepoPanel, StashPanel, WorktreePanel, resolve_remote
+from gx.lib.git import check_git_repo, git, repo_root, resolve_remote
+from gx.lib.info_panels import GitHubPanel, RepoPanel, StashPanel, WorktreePanel
 from gx.lib.log_panel import LogPanel
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}

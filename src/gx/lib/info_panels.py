@@ -148,22 +148,6 @@ def _submodule_count(root: Path) -> int:
     return content.count("[submodule ")
 
 
-def resolve_remote() -> tuple[str, str]:
-    """Resolve the primary remote name and its URL.
-
-    Returns:
-        A (remote_name, remote_url) tuple. Values are empty strings on failure.
-    """
-    name_result = git("remote")
-    if not name_result.success or not name_result.stdout:
-        return ("", "")
-
-    name = name_result.stdout.splitlines()[0]
-    url_result = git("remote", "get-url", name)
-    url = url_result.stdout.strip() if url_result.success and url_result.stdout else ""
-    return (name, url)
-
-
 def _gh_open_count(resource: str) -> int | None:
     """Fetch the count of open items (PRs or issues) via the gh CLI.
 
