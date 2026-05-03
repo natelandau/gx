@@ -1,3 +1,18 @@
+## v0.6.0 (2026-05-03)
+
+### Feat
+
+- **done**: verify branch is merged before deleting (#12)
+- **done**: hint at gx clean when run on default branch
+
+### Fix
+
+- **feat**: branch from origin/<default> instead of stale local ref (#11)
+
+### Refactor
+
+- extract pull's git-flow helpers into lib/ (#13)
+
 ## v0.5.0 (2026-03-23)
 
 ### Feat
