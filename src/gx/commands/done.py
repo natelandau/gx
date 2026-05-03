@@ -96,10 +96,9 @@ def _delete_branch(branch: str) -> None:
 def _verify_merged(branch: str, target: str) -> None:
     """Confirm the branch has been merged before destructive cleanup, prompting if unsure.
 
-    Refreshes refs with a single fetch so is_gone() and is_merged() reflect the latest
-    remote state, then checks signals in order of authority: gh PR state, then upstream
-    deletion, then a traditional merge commit. If no signal confirms the merge, prompt
-    the user with a platform-agnostic message showing the count of commits not in target.
+    Checks signals in order of authority: gh PR state, then upstream deletion, then a
+    traditional merge commit. If no signal confirms the merge, prompt the user with a
+    platform-agnostic message showing the count of commits not in target.
 
     Args:
         branch: The current feature branch about to be deleted.
@@ -108,17 +107,19 @@ def _verify_merged(branch: str, target: str) -> None:
     Raises:
         typer.Exit: When the user declines the prompt.
     """
-    with step("Refresh remote refs"):
-        git("fetch")
-
     state = pr_state(branch)
     if state == "MERGED":
         return
 
-    # gh is authoritative for GitHub remotes - only fall through to git signals when
-    # gh provided no answer (no gh installed, non-GitHub remote, or no PR for branch).
-    if state is None and (is_gone(branch) or is_merged(branch, target)):
-        return
+    # gh is authoritative for GitHub remotes — only fall through to git signals when gh
+    # provided no answer (no gh installed, non-GitHub remote, or no PR for branch). The
+    # fetch lives in this branch because is_gone/is_merged need fresh refs; pr_state
+    # doesn't, and a successful gh check would make the fetch wasted work.
+    if state is None:
+        with step("Refresh remote refs"):
+            git("fetch", "--prune")
+        if is_gone(branch) or is_merged(branch, target):
+            return
 
     ab = ahead_behind(branch, target)
     n_ahead = ab[0] if ab else 0
@@ -192,7 +193,6 @@ def done(
         _verify_merged(branch, target)
 
     if worktree is not None:
-        # Mode 2: in a worktree
         if main_path is None:
             error("Could not find main worktree.")
             raise typer.Exit(1)
@@ -210,6 +210,5 @@ def done(
         _delete_branch(branch)
         warning(f"Your previous working directory was removed. Run: cd {main_path}")
     else:
-        # Mode 1: on a feature branch
         _checkout_and_pull(target)
         _delete_branch(branch)

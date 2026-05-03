@@ -17,8 +17,11 @@ from __future__ import annotations
 import shutil
 import subprocess
 from dataclasses import dataclass
+from typing import Literal
 
-from gx.lib.git import git
+from gx.lib.git import resolve_remote
+
+PrState = Literal["MERGED", "OPEN", "CLOSED"]
 
 
 @dataclass(frozen=True)
@@ -70,29 +73,33 @@ def gh(*args: str, timeout: int = 15) -> GhResult:
     )
 
 
-def pr_state(branch: str) -> str | None:
+def pr_state(branch: str) -> PrState | None:
     """Return the PR state for a branch via gh, or None if it cannot be determined.
 
     Useful as an authoritative merge signal before destructive cleanup operations.
-    Returns the state string (typically "MERGED", "OPEN", or "CLOSED") only when
-    gh is installed, the origin remote is on GitHub, and a PR exists for the branch.
+    Only returns a value when gh is installed, the primary remote is on GitHub, and
+    a PR exists for the branch.
 
     Args:
         branch: The local branch name to look up a PR for.
 
     Returns:
-        The PR state string, or None when gh is unavailable, the remote is not on
-        GitHub, no PR exists for the branch, or the gh call fails.
+        The PR state, or None when gh is unavailable, the remote is not on GitHub,
+        no PR exists for the branch, or the gh call fails.
     """
     if not gh_available():
         return None
 
-    remote_result = git("config", "--get", "remote.origin.url")
-    if not remote_result.success or not is_github_remote(remote_result.stdout):
+    _, remote_url = resolve_remote()
+    if not remote_url or not is_github_remote(remote_url):
         return None
 
     result = gh("pr", "view", branch, "--json", "state", "-q", ".state")
-    if not result.success or not result.stdout:
+    if not result.success:
         return None
 
-    return result.stdout
+    match result.stdout:
+        case "MERGED" | "OPEN" | "CLOSED" as state:
+            return state
+        case _:
+            return None

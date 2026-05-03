@@ -82,6 +82,15 @@ class TestDoneGuards:
         assert "detached HEAD" in captured.err
 
 
+def _delete_calls() -> list:
+    """Return the standard happy-path git side-effect chain for branch deletion.
+
+    Sequence: checkout target → rev-parse HEAD (for pre-pull diff summary) → branch -D.
+    Tests where _verify_merged also fetches should prepend an extra _ok().
+    """
+    return [_ok(), _ok(stdout="abc"), _ok()]
+
+
 def _patch_verification(
     mocker,
     *,
@@ -128,7 +137,6 @@ class TestDoneMode1:
         mocker.patch("gx.commands.done.print_summary", autospec=True)
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
         mock_git.side_effect = [
-            _ok(),  # fetch (verification refresh)
             _ok(),  # checkout main
             _ok(stdout="abc"),  # rev-parse HEAD (before)
             _ok(),  # branch -D feature-x
@@ -138,9 +146,9 @@ class TestDoneMode1:
         ctx = typer.Context(click.Command("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
-        # Then
+        # Then — gh MERGED skips the verification fetch
         calls = [c.args for c in mock_git.call_args_list]
-        assert ("fetch",) in calls
+        assert ("fetch", "--prune") not in calls
         assert ("checkout", "main") in calls
         assert ("branch", "-D", "feature-x") in calls
 
@@ -168,7 +176,6 @@ class TestDoneMode1:
         mocker.patch("gx.commands.done.print_summary", autospec=True)
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
         mock_git.side_effect = [
-            _ok(),  # fetch (verification refresh)
             _ok(),  # checkout main
             _ok(stdout="abc"),  # rev-parse HEAD (before)
             _fail(stderr="not fully merged"),  # branch -D fails
@@ -227,7 +234,6 @@ class TestDoneMode2:
 
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
         mock_git.side_effect = [
-            _ok(),  # fetch (verification refresh)
             _ok(),  # checkout main
             _ok(stdout="abc"),  # rev-parse HEAD (before pull)
             _ok(),  # branch -D feature-x
@@ -306,10 +312,8 @@ class TestDoneMode2:
         )
         mocker.patch("os.chdir", autospec=True)
 
-        mock_git = mocker.patch("gx.commands.done.git", autospec=True)
-        mock_git.side_effect = [
-            _ok(),  # fetch (verification refresh)
-        ]
+        # gh MERGED makes _verify_merged a no-op, so no git calls run before failure
+        mocker.patch("gx.commands.done.git", autospec=True)
 
         # When
         ctx = typer.Context(click.Command("done"))
@@ -351,11 +355,7 @@ class TestDoneVerification:
         mock_is_merged = mocker.patch("gx.commands.done.is_merged", autospec=True)
         mock_confirm = mocker.patch("gx.commands.done.Confirm.ask", autospec=True)
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
-        mock_git.side_effect = [
-            _ok(),  # checkout main
-            _ok(stdout="abc"),  # rev-parse HEAD
-            _ok(),  # branch -D
-        ]
+        mock_git.side_effect = _delete_calls()
 
         # When
         ctx = typer.Context(click.Command("done"))
@@ -366,44 +366,43 @@ class TestDoneVerification:
         mock_is_gone.assert_not_called()
         mock_is_merged.assert_not_called()
         mock_confirm.assert_not_called()
-        # Force also skips the early fetch — it would be wasteful when verification is bypassed
         calls = [c.args for c in mock_git.call_args_list]
-        assert ("fetch",) not in calls
+        assert ("fetch", "--prune") not in calls
         assert ("branch", "-D", "feature-x") in calls
 
     def test_pr_merged_proceeds_without_prompt(self, mocker):
-        """Verify gh state MERGED proceeds with deletion and never prompts."""
+        """Verify gh state MERGED proceeds with deletion and never prompts or fetches."""
         # Given
         self._common_mocks(mocker)
         mock_confirm = _patch_verification(mocker, state="MERGED")
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
-        mock_git.side_effect = [_ok(), _ok(), _ok(stdout="abc"), _ok()]
+        mock_git.side_effect = _delete_calls()
 
         # When
         ctx = typer.Context(click.Command("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
-        # Then
+        # Then — gh was authoritative, so no fetch was needed
+        calls = [c.args for c in mock_git.call_args_list]
         mock_confirm.assert_not_called()
-        assert ("branch", "-D", "feature-x") in [c.args for c in mock_git.call_args_list]
+        assert ("fetch", "--prune") not in calls
+        assert ("branch", "-D", "feature-x") in calls
 
     def test_pr_open_prompt_decline_aborts(self, mocker, capsys):
         """Verify gh state OPEN with declined prompt aborts before deletion."""
-        # Given gh reports OPEN and user declines
+        # Given gh reports OPEN (no fetch — gh is authoritative) and user declines
         self._common_mocks(mocker)
         _patch_verification(mocker, state="OPEN", confirm=False)
         mocker.patch("gx.commands.done.ahead_behind", autospec=True, return_value=(3, 0))
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
-        mock_git.side_effect = [_ok()]  # only the early fetch
 
         # When
         ctx = typer.Context(click.Command("done"))
         with pytest.raises(typer.Exit):
             done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
-        # Then — branch was NOT deleted
-        calls = [c.args for c in mock_git.call_args_list]
-        assert ("branch", "-D", "feature-x") not in calls
+        # Then — no destructive ops
+        mock_git.assert_not_called()
 
     def test_pr_open_prompt_accept_proceeds(self, mocker):
         """Verify gh state OPEN with accepted prompt proceeds with deletion."""
@@ -412,7 +411,7 @@ class TestDoneVerification:
         _patch_verification(mocker, state="OPEN", confirm=True)
         mocker.patch("gx.commands.done.ahead_behind", autospec=True, return_value=(3, 0))
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
-        mock_git.side_effect = [_ok(), _ok(), _ok(stdout="abc"), _ok()]
+        mock_git.side_effect = _delete_calls()
 
         # When
         ctx = typer.Context(click.Command("done"))
@@ -423,19 +422,21 @@ class TestDoneVerification:
 
     def test_no_gh_is_gone_proceeds(self, mocker):
         """Verify when gh unavailable but upstream is gone, deletion proceeds without prompt."""
-        # Given pr_state None and is_gone True
+        # Given pr_state None and is_gone True — fetch runs, then is_gone confirms
         self._common_mocks(mocker)
         mock_confirm = _patch_verification(mocker, state=None, is_gone_value=True)
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
-        mock_git.side_effect = [_ok(), _ok(), _ok(stdout="abc"), _ok()]
+        mock_git.side_effect = [_ok(), *_delete_calls()]
 
         # When
         ctx = typer.Context(click.Command("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
         # Then
+        calls = [c.args for c in mock_git.call_args_list]
         mock_confirm.assert_not_called()
-        assert ("branch", "-D", "feature-x") in [c.args for c in mock_git.call_args_list]
+        assert ("fetch", "--prune") in calls
+        assert ("branch", "-D", "feature-x") in calls
 
     def test_no_gh_is_merged_proceeds(self, mocker):
         """Verify when gh unavailable but branch is merged, deletion proceeds without prompt."""
@@ -445,7 +446,7 @@ class TestDoneVerification:
             mocker, state=None, is_gone_value=False, is_merged_value=True
         )
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
-        mock_git.side_effect = [_ok(), _ok(), _ok(stdout="abc"), _ok()]
+        mock_git.side_effect = [_ok(), *_delete_calls()]
 
         # When
         ctx = typer.Context(click.Command("done"))
@@ -464,7 +465,7 @@ class TestDoneVerification:
         )
         mocker.patch("gx.commands.done.ahead_behind", autospec=True, return_value=(2, 0))
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
-        mock_git.side_effect = [_ok()]  # only the early fetch
+        mock_git.side_effect = [_ok()]  # only the verification fetch
 
         # When
         ctx = typer.Context(click.Command("done"))
@@ -484,7 +485,7 @@ class TestDoneVerification:
         )
         mocker.patch("gx.commands.done.ahead_behind", autospec=True, return_value=(2, 0))
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
-        mock_git.side_effect = [_ok(), _ok(), _ok(stdout="abc"), _ok()]
+        mock_git.side_effect = [_ok(), *_delete_calls()]
 
         # When
         ctx = typer.Context(click.Command("done"))
@@ -527,7 +528,7 @@ class TestDoneVerification:
         mock_confirm = _patch_verification(mocker, state="OPEN", confirm=True)
         mocker.patch("gx.commands.done.ahead_behind", autospec=True, return_value=(5, 0))
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
-        mock_git.side_effect = [_ok(), _ok(), _ok(stdout="abc"), _ok()]
+        mock_git.side_effect = _delete_calls()
 
         # When
         ctx = typer.Context(click.Command("done"))

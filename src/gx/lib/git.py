@@ -143,6 +143,22 @@ def repo_root() -> Path:
     return Path(result.stdout)
 
 
+def resolve_remote() -> tuple[str, str]:
+    """Resolve the primary remote name and its URL.
+
+    Returns:
+        A (remote_name, remote_url) tuple. Values are empty strings on failure.
+    """
+    name_result = git("remote")
+    if not name_result.success or not name_result.stdout:
+        return ("", "")
+
+    name = name_result.stdout.splitlines()[0]
+    url_result = git("remote", "get-url", name)
+    url = url_result.stdout.strip() if url_result.success and url_result.stdout else ""
+    return (name, url)
+
+
 def check_git_installed() -> None:
     """Bail with a friendly error if git is not installed."""
     if not shutil.which("git"):
