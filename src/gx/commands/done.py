@@ -121,6 +121,7 @@ def done(
     target = default_branch()
     if branch == target:
         error("Already on the default branch — nothing to do.")
+        error("To clean up merged branches/worktrees, run: gx pull && gx clean", detail=True)
         raise typer.Exit(1)
 
     worktree, main_path = _detect_worktree_context()

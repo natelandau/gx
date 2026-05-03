@@ -56,6 +56,7 @@ class TestDoneGuards:
         # Then
         captured = capsys.readouterr()
         assert "Already on the default branch" in captured.err
+        assert "gx pull && gx clean" in captured.err
 
     def test_detached_head_aborts(
         self,
