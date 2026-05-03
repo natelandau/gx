@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import typer
+from rich.prompt import Confirm
 
 from gx.commands.pull import (
     fetch_and_rebase,
@@ -16,15 +17,24 @@ from gx.commands.pull import (
     update_submodules,
     validate_branch,
 )
-from gx.lib.branch import current_branch, default_branch
+from gx.lib.branch import ahead_behind, current_branch, default_branch, is_gone, is_merged
 from gx.lib.console import error, set_verbosity, step, warning
 from gx.lib.git import check_git_repo, git, set_dry_run
+from gx.lib.github import pr_state
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 from gx.lib.worktree import WorktreeInfo, list_worktrees, remove_worktree
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
+
+
+FORCE_OPTION: bool = typer.Option(
+    False,  # noqa: FBT003
+    "--force",
+    "-f",
+    help="Skip the merge-verification check and delete the branch unconditionally.",
+)
 
 
 def _detect_worktree_context() -> tuple[WorktreeInfo | None, Path | None]:
@@ -83,27 +93,72 @@ def _delete_branch(branch: str) -> None:
             warning(f"Could not delete branch {branch}: {result.stderr}")
 
 
+def _verify_merged(branch: str, target: str) -> None:
+    """Confirm the branch has been merged before destructive cleanup, prompting if unsure.
+
+    Refreshes refs with a single fetch so is_gone() and is_merged() reflect the latest
+    remote state, then checks signals in order of authority: gh PR state, then upstream
+    deletion, then a traditional merge commit. If no signal confirms the merge, prompt
+    the user with a platform-agnostic message showing the count of commits not in target.
+
+    Args:
+        branch: The current feature branch about to be deleted.
+        target: The default branch (e.g., main) being compared against.
+
+    Raises:
+        typer.Exit: When the user declines the prompt.
+    """
+    with step("Refresh remote refs"):
+        git("fetch")
+
+    state = pr_state(branch)
+    if state == "MERGED":
+        return
+
+    # gh is authoritative for GitHub remotes - only fall through to git signals when
+    # gh provided no answer (no gh installed, non-GitHub remote, or no PR for branch).
+    if state is None and (is_gone(branch) or is_merged(branch, target)):
+        return
+
+    ab = ahead_behind(branch, target)
+    n_ahead = ab[0] if ab else 0
+    suffix = "" if n_ahead == 1 else "s"
+    message = (
+        f"Branch '{branch}' has {n_ahead} commit{suffix} not in {target} and no merge "
+        f"was detected. Delete anyway?"
+    )
+
+    if not Confirm.ask(message, default=False):
+        error("Aborted by user.")
+        raise typer.Exit(1)
+
+
 @app.callback(invoke_without_command=True)
 def done(
     ctx: typer.Context,  # noqa: ARG001
     verbose: int = VERBOSE_OPTION,
     dry_run: bool = DRY_RUN_OPTION,  # noqa: FBT001
+    force: bool = FORCE_OPTION,  # noqa: FBT001
 ) -> None:
     """Switch back to the default branch, pull, and clean up.
 
     Use after your PR has been merged on the remote. Checks out the default branch, pulls the latest changes, and deletes the feature branch you were on.
 
+    Before deleting, verifies the branch was actually merged using (in order) the gh PR state, an upstream-deleted (`[gone]`) marker, or a traditional merge commit. If no signal confirms the merge, you'll be prompted before deletion. Pass --force to skip the check.
+
     If run from a worktree, removes the worktree first, then switches to the main working directory to pull and clean up. Prints a cd command since your shell will still be in the deleted directory.
 
     [bold]What happens:[/bold]
 
-    1. Checks out the default branch (e.g. main)
-    2. Pulls latest changes with rebase
-    3. Deletes the feature branch
+    1. Verifies the branch was merged (or prompts)
+    2. Checks out the default branch (e.g. main)
+    3. Pulls latest changes with rebase
+    4. Deletes the feature branch
 
     [bold]Examples:[/bold]
 
       gx done              Clean up after a merged PR
+      gx done -f           Skip the merge check (use with care)
       gx done -n           Preview what would happen
       gx done -v           Run with debug output
     """
@@ -126,12 +181,18 @@ def done(
 
     worktree, main_path = _detect_worktree_context()
 
+    # Dirty-worktree check runs before merge verification and is NOT bypassed by --force,
+    # since losing uncommitted changes is a separate class of footgun from deleting a
+    # not-yet-merged branch.
+    if worktree is not None and is_dirty():
+        error("Worktree has uncommitted changes. Commit or stash before running done.")
+        raise typer.Exit(1)
+
+    if not force:
+        _verify_merged(branch, target)
+
     if worktree is not None:
         # Mode 2: in a worktree
-        if is_dirty():
-            error("Worktree has uncommitted changes. Commit or stash before running done.")
-            raise typer.Exit(1)
-
         if main_path is None:
             error("Could not find main worktree.")
             raise typer.Exit(1)
