@@ -22,7 +22,7 @@ def validate_branch() -> tuple[str, str, str]:
     """
     branch = current_branch()
     if branch is None:
-        error("Cannot pull in detached HEAD state.")
+        error("Cannot sync — HEAD is detached.")
         raise typer.Exit(1)
 
     tracking = tracking_branch()

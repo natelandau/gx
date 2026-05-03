@@ -32,7 +32,7 @@ class TestPullGuardRails:
 
         # Then
         captured = capsys.readouterr()
-        assert "detached HEAD" in captured.err
+        assert "HEAD is detached" in captured.err
 
     def test_no_upstream_aborts(
         self,
@@ -445,4 +445,4 @@ class TestPullDryRun:
 
         # Then
         captured = capsys.readouterr()
-        assert "detached HEAD" in captured.err
+        assert "HEAD is detached" in captured.err

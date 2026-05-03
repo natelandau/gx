@@ -12,22 +12,24 @@ from pathlib import Path
 import typer
 
 from gx.lib.console import error, step, warning
-from gx.lib.git import git
+from gx.lib.git import git, repo_root
 
 
-def is_dirty() -> bool:
-    """Return True if the working tree has uncommitted changes or untracked files."""
-    result = git("status", "--porcelain")
+def is_dirty(*, cwd: Path | None = None) -> bool:
+    """Return True if the working tree has uncommitted changes or untracked files.
+
+    Args:
+        cwd: Directory to inspect. Defaults to the process cwd, which is the right
+            choice for top-level commands; pass an explicit path to inspect another
+            worktree (e.g., during cleanup analysis).
+    """
+    result = git("status", "--porcelain", cwd=cwd)
     return result.success and result.stdout != ""
 
 
 def has_submodules() -> bool:
     """Return True if the repo has a .gitmodules file at its root."""
-    path = Path.cwd()
-    for parent in [path, *path.parents]:
-        if (parent / ".git").exists():
-            return (parent / ".gitmodules").exists()
-    return False
+    return (repo_root() / ".gitmodules").exists()
 
 
 def is_rebase_in_progress() -> bool:
@@ -94,7 +96,8 @@ def unstash(*, stashed: bool) -> None:
         if not result.success:
             warning("Could not cleanly restore stashed changes")
             warning(
-                "Your pull succeeded, but stashed changes conflict with pulled code", detail=True
+                "The git operation succeeded, but stashed changes conflict with the updated code",
+                detail=True,
             )
             warning("Run 'git stash show' to see stashed changes", detail=True)
             warning("Run 'git stash pop' to try again, or 'git stash drop' to discard", detail=True)

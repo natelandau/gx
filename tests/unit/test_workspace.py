@@ -24,12 +24,11 @@ class TestIsDirty:
 class TestHasSubmodules:
     """Tests for the has_submodules helper function."""
 
-    def test_true_when_gitmodules_exists(self, tmp_path, monkeypatch):
-        """Verify has_submodules returns True when .gitmodules file exists."""
-        # Given a repo root with .git and .gitmodules
-        (tmp_path / ".git").mkdir()
+    def test_true_when_gitmodules_exists(self, tmp_path, mocker):
+        """Verify has_submodules returns True when .gitmodules file exists at repo root."""
+        # Given a repo root that contains .gitmodules
         (tmp_path / ".gitmodules").touch()
-        monkeypatch.chdir(tmp_path)
+        mocker.patch("gx.lib.workspace.repo_root", autospec=True, return_value=tmp_path)
 
         # When
         result = has_submodules()
@@ -37,11 +36,10 @@ class TestHasSubmodules:
         # Then
         assert result is True
 
-    def test_false_when_no_gitmodules(self, tmp_path, monkeypatch):
-        """Verify has_submodules returns False when no .gitmodules file."""
-        # Given a repo root with .git but no .gitmodules
-        (tmp_path / ".git").mkdir()
-        monkeypatch.chdir(tmp_path)
+    def test_false_when_no_gitmodules(self, tmp_path, mocker):
+        """Verify has_submodules returns False when no .gitmodules file at repo root."""
+        # Given a repo root with no .gitmodules
+        mocker.patch("gx.lib.workspace.repo_root", autospec=True, return_value=tmp_path)
 
         # When
         result = has_submodules()
