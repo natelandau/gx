@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 class GitHighlighter(RegexHighlighter):
     """Highlight git-related tokens in output text."""
 
-    base_style: str = "git."
+    base_style: ClassVar[str] = "git."
     highlights: ClassVar[list[str]] = [
         r"(?P<sha>\b[0-9a-f]{7,12}\b)",
         r"(?P<type>(?:feat|fix|refactor|perf|build|ci|docs|style|test|chore|bump))"

@@ -7,7 +7,7 @@ from rich.prompt import Confirm
 
 from gx.lib.branch import current_branch, default_branch, tracking_branch
 from gx.lib.config import config
-from gx.lib.console import error, set_verbosity, step, step_result, warning
+from gx.lib.console import error, info, set_verbosity, step, step_result, warning
 from gx.lib.git import check_git_repo, get_dry_run, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 
@@ -154,6 +154,7 @@ def push(
         and branch == default
         and not Confirm.ask(f"You're about to push directly to {default}. Continue?")
     ):
+        info("Cancelled push")
         raise typer.Exit(0)
 
     remote, remote_branch = _resolve_push_target(branch)
