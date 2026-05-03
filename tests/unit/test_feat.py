@@ -180,10 +180,10 @@ class TestFeatBranchMode:
         # When creating a branch with no name
         _create_branch(name=None)
 
-        # Then checkout is called with feat/1
+        # Then checkout uses the remote-tracking ref so the branch starts from the freshly fetched tip
         checkout_calls = [c for c in mock_git.call_args_list if c.args[0] == "checkout"]
         assert len(checkout_calls) == 1
-        assert checkout_calls[0].args == ("checkout", "-b", "feat/1", "main")
+        assert checkout_calls[0].args == ("checkout", "-b", "feat/1", "origin/main")
 
     def test_creates_named_branch(self, mocker):
         """Verify feat --name creates feat/<name>."""
@@ -201,10 +201,43 @@ class TestFeatBranchMode:
         # When creating a branch with name "login"
         _create_branch(name="login")
 
-        # Then checkout is called with feat/login
+        # Then checkout uses the remote-tracking ref so the branch starts from the freshly fetched tip
         checkout_calls = [c for c in mock_git.call_args_list if c.args[0] == "checkout"]
         assert len(checkout_calls) == 1
-        assert checkout_calls[0].args == ("checkout", "-b", "feat/login", "main")
+        assert checkout_calls[0].args == ("checkout", "-b", "feat/login", "origin/main")
+
+    def test_falls_back_to_local_default_when_no_remote_ref(self, mocker):
+        """Verify start_point falls back to local default when origin/<default> is missing."""
+        # Given no existing feat branches and no remote-tracking ref for the default branch
+        mocker.patch("gx.commands.feat.current_branch", return_value="main")
+        mocker.patch("gx.commands.feat.default_branch", return_value="main")
+        mocker.patch("gx.commands.feat.branch_exists", return_value=False)
+
+        def side_effect(*args: str, **kwargs: str) -> GitResult:
+            if args[0] == "fetch":
+                return GitResult(command="", returncode=0, stdout="", stderr="")
+            if args[0] == "branch" and "--list" in args:
+                return GitResult(command="", returncode=0, stdout="", stderr="")
+            if args[0] == "check-ref-format":
+                return GitResult(command="", returncode=0, stdout=args[-1], stderr="")
+            if args[0] == "rev-parse":
+                # Simulate origin/main not existing in this repo
+                return GitResult(command="", returncode=1, stdout="", stderr="")
+            if args[0] == "checkout":
+                return GitResult(command="", returncode=0, stdout="", stderr="")
+            return GitResult(command="", returncode=0, stdout="", stderr="")
+
+        mock_git = mocker.patch("gx.commands.feat.git", side_effect=side_effect)
+
+        from gx.commands.feat import _create_branch
+
+        # When creating a branch with no remote-tracking ref available
+        _create_branch(name=None)
+
+        # Then checkout falls back to the local default branch name
+        checkout_calls = [c for c in mock_git.call_args_list if c.args[0] == "checkout"]
+        assert len(checkout_calls) == 1
+        assert checkout_calls[0].args == ("checkout", "-b", "feat/1", "main")
 
     def test_errors_on_detached_head(self, mocker):
         """Verify feat errors when in detached HEAD state."""
@@ -322,11 +355,11 @@ class TestFeatWorktreeMode:
         # When creating a worktree branch
         _create_worktree_branch(name=None)
 
-        # Then create_worktree was called with correct path and start point
+        # Then create_worktree was called with correct path and the remote-tracking start point
         mock_create.assert_called_once_with(
-            tmp_path / ".worktrees" / "feat" / "1",
-            "feat/1",
-            start_point="main",
+            path=tmp_path / ".worktrees" / "feat" / "1",
+            branch="feat/1",
+            start_point="origin/main",
         )
 
     def test_errors_on_detached_head(self, mocker):
