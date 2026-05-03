@@ -87,11 +87,28 @@ def _resolve_branch_name(name: str | None) -> str:
     return f"{config.branch_prefix}/{_next_feat_number()}"
 
 
+def _resolve_start_point(default: str) -> str:
+    """Return the ref to branch from after fetching.
+
+    Prefer the just-fetched remote-tracking ref (e.g. origin/main) so new
+    branches start from the latest remote state regardless of whether the
+    local default branch has been pulled. Fall back to the local default if
+    no remote-tracking ref exists (fresh repo, no remote, etc.).
+    """
+    remote_ref = f"{config.remote_name}/{default}"
+    if git("rev-parse", "--verify", "--quiet", remote_ref).success:
+        return remote_ref
+    return default
+
+
 def _prepare_feat_branch(name: str | None) -> tuple[str, str]:
-    """Run shared guards and return (feat_branch, default_branch_name).
+    """Run shared guards and return (feat_branch, start_point).
 
     Check for detached HEAD, fetch the default branch, warn if currently on
     a feat/* branch, resolve the branch name, and verify it doesn't exist.
+    The returned start_point is origin/<default> when present so the new
+    branch is rooted at the freshly fetched remote tip rather than a stale
+    local pointer.
     """
     branch = current_branch()
     if branch is None:
@@ -112,15 +129,17 @@ def _prepare_feat_branch(name: str | None) -> tuple[str, str]:
         error(f"Branch {feat_branch} already exists.")
         raise typer.Exit(1)
 
-    return feat_branch, default
+    start_point = _resolve_start_point(default)
+
+    return feat_branch, start_point
 
 
 def _create_branch(name: str | None) -> None:
     """Create a feature branch and switch to it."""
-    feat_branch, default = _prepare_feat_branch(name)
+    feat_branch, start_point = _prepare_feat_branch(name)
 
-    with step(f"Create branch {feat_branch} from {default}"):
-        result = git("checkout", "-b", feat_branch, default)
+    with step(f"Create branch {feat_branch} from {start_point}"):
+        result = git("checkout", "-b", feat_branch, start_point)
         if not result.success:
             if "would be overwritten" in result.stderr:
                 error(
@@ -134,7 +153,7 @@ def _create_branch(name: str | None) -> None:
 
 def _create_worktree_branch(name: str | None) -> None:
     """Create a feature branch in a new worktree."""
-    feat_branch, default = _prepare_feat_branch(name)
+    feat_branch, start_point = _prepare_feat_branch(name)
 
     root = repo_root()
     worktree_base = resolve_worktree_directory(root)
@@ -154,8 +173,10 @@ def _create_worktree_branch(name: str | None) -> None:
         display_path = worktree_path
 
     with step(f"Create worktree at {display_path}") as s:
-        create_worktree(worktree_path, feat_branch, start_point=default).raise_on_error()
-        s.sub(f"Branch {feat_branch} from {default}")
+        create_worktree(
+            path=worktree_path, branch=feat_branch, start_point=start_point
+        ).raise_on_error()
+        s.sub(f"Branch {feat_branch} from {start_point}")
 
 
 @app.callback(invoke_without_command=True)
