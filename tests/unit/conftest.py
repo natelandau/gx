@@ -19,21 +19,32 @@ def _fail(stderr: str = "error", command: str = "git test") -> GitResult:
 
 @pytest.fixture
 def mock_git(mocker):
-    """Patch git() at the pull command's usage site and return the mock."""
-    return mocker.patch("gx.commands.pull.git", autospec=True)
+    """Patch git() everywhere the pull flow calls it and return the shared mock.
+
+    The pull flow's git() calls happen across three modules (commands.pull, lib.workspace,
+    lib.sync) since the helpers were extracted; tests rely on a single ordered side_effect
+    list, so all three patch sites must share the same Mock instance.
+    """
+    from gx.lib.git import git as real_git
+
+    mock = mocker.create_autospec(real_git)
+    mocker.patch("gx.commands.pull.git", new=mock)
+    mocker.patch("gx.lib.workspace.git", new=mock)
+    mocker.patch("gx.lib.sync.git", new=mock)
+    return mock
 
 
 @pytest.fixture
 def mock_current_branch(mocker):
-    """Patch current_branch() at the pull command's usage site, returning 'main' by default."""
-    return mocker.patch("gx.commands.pull.current_branch", autospec=True, return_value="main")
+    """Patch current_branch() where validate_branch() looks it up, returning 'main' by default."""
+    return mocker.patch("gx.lib.sync.current_branch", autospec=True, return_value="main")
 
 
 @pytest.fixture
 def mock_tracking_branch(mocker):
-    """Patch tracking_branch() at the pull command's usage site, returning ('origin', 'main')."""
+    """Patch tracking_branch() where validate_branch() looks it up, returning ('origin', 'main')."""
     return mocker.patch(
-        "gx.commands.pull.tracking_branch",
+        "gx.lib.sync.tracking_branch",
         autospec=True,
         return_value=("origin", "main"),
     )

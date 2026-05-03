@@ -8,20 +8,13 @@ from pathlib import Path
 import typer
 from rich.prompt import Confirm
 
-from gx.commands.pull import (
-    fetch_and_rebase,
-    is_dirty,
-    print_summary,
-    stash_if_dirty,
-    unstash,
-    update_submodules,
-    validate_branch,
-)
 from gx.lib.branch import ahead_behind, current_branch, default_branch, is_gone, is_merged
 from gx.lib.console import error, set_verbosity, step, warning
 from gx.lib.git import check_git_repo, git, set_dry_run
 from gx.lib.github import pr_state
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
+from gx.lib.sync import fetch_and_rebase, print_pull_summary, validate_branch
+from gx.lib.workspace import is_dirty, stash_if_dirty, unstash, update_submodules
 from gx.lib.worktree import WorktreeInfo, list_worktrees, remove_worktree
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
@@ -78,7 +71,7 @@ def _checkout_and_pull(target_branch: str) -> None:
     fetch_and_rebase(remote, remote_branch, stashed=stashed)
     update_submodules(stashed=stashed)
     unstash(stashed=stashed)
-    print_summary(head_before.stdout, remote, remote_branch)
+    print_pull_summary(head_before.stdout, remote, remote_branch)
 
 
 def _delete_branch(branch: str) -> None:
