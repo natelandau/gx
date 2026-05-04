@@ -291,7 +291,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "nllog", specifier = ">=0.2.0" },
+    { name = "nllog", specifier = ">=0.3.0" },
     { name = "rich", specifier = ">=15.0.0,<16.0.0" },
     { name = "typer", specifier = ">=0.25.1,<0.26.0" },
 ]
@@ -413,14 +413,14 @@ wheels = [
 
 [[package]]
 name = "nllog"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/13/43/f4278b64feeeffa180ecfc8a9ad84779d66308ef1113fad9fadab09c49d2/nllog-0.2.0.tar.gz", hash = "sha256:163419fab806c7b6fb3fb168fa93fd30aa2c9dfb0ee4179673a3140e185e770b", size = 19886, upload-time = "2026-05-04T17:01:43.49Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/82/ae/a8f17d439ee9d46ecf0fc3e25923f4ea4708fb75491ac8c67bb535982ebd/nllog-0.3.0.tar.gz", hash = "sha256:e94b2a7d2074b7f0fc03a18b47c41364378808f036cdf27130017b03c00bdb9a", size = 20219, upload-time = "2026-05-04T20:04:37.443Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/34/2b/39445f859dcc3643d1948c4b4569dd1378fdf32d40dd9116b59e01d3012e/nllog-0.2.0-py3-none-any.whl", hash = "sha256:19c8a55d0f38f12c9dd9c801bc51d58900e75d2545e07dd88bdbf6bd782523d9", size = 19863, upload-time = "2026-05-04T17:01:41.999Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/6e/335336c28a18ef33d6f158e96fc507f12c95051a8a8d59d02c7de2df0992/nllog-0.3.0-py3-none-any.whl", hash = "sha256:8fe5c2e29a56518680b12af2c6f5edd85916e363a24a7431cf6411df444c773a", size = 20162, upload-time = "2026-05-04T20:04:36.525Z" },
 ]
 
 [[package]]

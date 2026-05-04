@@ -1,11 +1,11 @@
-"""Info subcommand for gx — repository metadata dashboard."""
+"""Info subcommand for gx - repository metadata dashboard."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import typer
-from nllog import get_default
+from nllog import console
 from rich.console import Group
 from rich.table import Table
 
@@ -18,7 +18,7 @@ from gx.lib.log_panel import LogPanel
 if TYPE_CHECKING:
     from rich.panel import Panel
 
-console = get_default().console
+
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 WIDE_THRESHOLD = 100
 
@@ -40,7 +40,7 @@ def _compose_dashboard(
     Use a wide two/three-column grid layout when the terminal is at least
     WIDE_THRESHOLD characters wide, otherwise stack all panels vertically.
     """
-    wide = console.width >= WIDE_THRESHOLD
+    wide = console().width >= WIDE_THRESHOLD
 
     if wide:
         parts: list[Table | Panel] = []
@@ -69,12 +69,12 @@ def _compose_dashboard(
             parts.append(log)
 
         if parts:
-            console.print(Group(*parts))
+            console().print(Group(*parts))
     else:
         all_panels = [repo, github, branches, working_tree, stashes, log, worktrees]
         visible = [p for p in all_panels if p is not None]
         if visible:
-            console.print(Group(*visible))
+            console().print(Group(*visible))
 
 
 @app.callback(invoke_without_command=True)

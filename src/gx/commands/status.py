@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import typer
-from nllog import error, get_default
+from nllog import console, error
 from rich.panel import Panel
 
 from gx.lib.branch import collect_branch_data, current_branch
@@ -20,7 +20,6 @@ if TYPE_CHECKING:
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
-console = get_default().console
 
 
 def _print_status_output(
@@ -35,12 +34,12 @@ def _print_status_output(
     """
     if file_panel is not None:
         branch_name = current_branch() or git("rev-parse", "--short", "HEAD").stdout
-        console.print(Panel(file_panel, title=branch_name, border_style="dim"))
+        console().print(Panel(file_panel, title=branch_name, border_style="dim"))
 
     if branch_panel is not None:
         if file_panel is not None:
-            console.print()
-        console.print(branch_panel)
+            console().print()
+        console().print(branch_panel)
 
 
 FILES_OPTION: bool = typer.Option(
@@ -110,7 +109,7 @@ def status(
         branch_panel = render_branch_panel(rows)
 
     if file_panel is None and branch_panel is None:
-        console.print(Panel(_info_text("Everything clean"), border_style="dim"))
+        console().print(Panel(_info_text("Everything clean"), border_style="dim"))
         return
 
     _print_status_output(file_panel, branch_panel)

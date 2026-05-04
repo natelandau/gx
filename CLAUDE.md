@@ -70,14 +70,14 @@ src/gx/
 
 - Output is handled by the external `nllog` package — never call `print()` or instantiate `rich.Console()` directly
 - Import print helpers: `from nllog import step, success, debug, trace, dryrun, info, warning, error`
-  - `step("message")` — context manager: spinner while running, `✓`/`✗` on completion
-    - Use `s.sub("text")` inside `with step(...) as s:` to queue sub-items
-  - `success(msg, details=[...])` — terminal success line with optional sub-items
-  - `debug()` — shown with `-v`
-  - `trace()` — shown with `-vv`
-  - `dryrun()` — always shown, prefixed `[dry-run]`
-  - `warning(msg, details=[...])` / `error(msg, details=[...])` — stderr; pass a list for follow-up lines
-- For tables/panels/direct Rich usage: `from nllog import get_default; console = get_default().console`
+    - `step("message")` — context manager: spinner while running, `✓`/`✗` on completion
+        - Use `s.sub("text")` inside `with step(...) as s:` to queue sub-items
+    - `success(msg, details=[...])` — terminal success line with optional sub-items
+    - `debug()` — shown with `-v`
+    - `trace()` — shown with `-vv`
+    - `dryrun()` — always shown, prefixed `[dry-run]`
+    - `warning(msg, details=[...])` / `error(msg, details=[...])` — stderr; pass a list for follow-up lines
+- For tables/panels/direct Rich usage: `from nllog import console; console().print(...)`
 - Verbosity set via `-v`/`-vv` flags on root command, wired through `nllog.configure(verbosity=...)`
 
 ### Git Execution
@@ -85,10 +85,10 @@ src/gx/
 - Git commands run through `src/gx/lib/git.py` — never call `subprocess` directly
 - Import: `from gx.lib.git import git, check_git_installed, check_git_repo, set_dry_run, get_dry_run`
 - `git("push", "origin", "main")` returns a `GitResult` dataclass
-  - `.success` — True if returncode == 0
-  - `.raise_on_error()` — prints stderr via `error()`, raises `typer.Exit(1)` on failure, returns self on success (chainable)
-  - `.stdout` / `.stderr` — stripped strings
-  - `.command` — full command string
+    - `.success` — True if returncode == 0
+    - `.raise_on_error()` — prints stderr via `error()`, raises `typer.Exit(1)` on failure, returns self on success (chainable)
+    - `.stdout` / `.stderr` — stripped strings
+    - `.command` — full command string
 - Command logging: `debug()` logs the command (visible with `-v`), `trace()` pipes stdout/stderr lines (visible with `-vv`)
 - Dry-run: `--dry-run`/`-n` flag on each subcommand. Mutating commands return synthetic success; read-only commands defined in `READ_ONLY_GIT_COMMANDS` (constants.py) always execute
 - `check_git_installed()` — called once in root CLI callback; verifies git is on PATH

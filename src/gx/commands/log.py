@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 import typer
-from nllog import configure, error, get_default, warning
+from nllog import configure, console, error, warning
 from rich.text import Text
 
 from gx.lib.git import check_git_repo, git, set_dry_run
@@ -15,7 +15,7 @@ from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
-console = get_default().console
+
 
 _GRAPH_FORMAT = "%h %ar <%an> %s%d"
 
@@ -110,7 +110,7 @@ def _run_graph_mode(count: int) -> None:
 
     for line in result.stdout.splitlines():
         styled = colorize_graph_line(line)
-        console.print(styled)
+        console().print(styled)
 
 
 @app.callback(invoke_without_command=True)
@@ -154,6 +154,6 @@ def log(
     else:
         panel = LogPanel(count=count, title="Log", show_body=full).render()
         if panel:
-            console.print(panel)
+            console().print(panel)
         else:
             warning("No commits found.")
