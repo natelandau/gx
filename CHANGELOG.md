@@ -1,3 +1,18 @@
+## v0.7.0 (2026-05-04)
+
+### Feat
+
+- **feat**: add --local flag to branch from local default (#14)
+
+### Fix
+
+- **console**: use nllog console
+- **feat**: pass --no-track when branching from remote refs (#16)
+
+### Refactor
+
+- replace lib/console with nllog package (#15)
+
 ## v0.6.0 (2026-05-03)
 
 ### Feat
