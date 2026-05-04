@@ -192,7 +192,9 @@ def _create_branch(name: str | None, *, local: bool = False) -> None:
     _maybe_warn_local_ahead(default=default, local=local, name=name, worktree=False)
 
     with step(f"Create branch {feat_branch} from {start_point}"):
-        result = git("checkout", "-b", feat_branch, start_point)
+        # --no-track prevents auto-tracking when start_point is a remote ref like
+        # origin/main; without it, push and PR creation would target the default branch.
+        result = git("checkout", "--no-track", "-b", feat_branch, start_point)
         if not result.success:
             if is_dirty():
                 error(

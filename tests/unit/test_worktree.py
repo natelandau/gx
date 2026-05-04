@@ -79,7 +79,9 @@ class TestCreateWorktree:
 
         result = create_worktree(Path(".worktrees/feat"), "feat")
         assert result.success is True
-        mock_git.assert_called_once_with("worktree", "add", ".worktrees/feat", "-b", "feat")
+        mock_git.assert_called_once_with(
+            "worktree", "add", ".worktrees/feat", "-b", "feat", "--no-track"
+        )
 
     def test_returns_failure_on_error(self, mocker):
         """Verify create_worktree() returns failure result on error."""
@@ -113,7 +115,7 @@ class TestCreateWorktree:
         result = create_worktree(Path(".worktrees/feat/1"), "feat/1", start_point="main")
         assert result.success is True
         mock_git.assert_called_once_with(
-            "worktree", "add", ".worktrees/feat/1", "-b", "feat/1", "main"
+            "worktree", "add", ".worktrees/feat/1", "-b", "feat/1", "--no-track", "main"
         )
 
 
