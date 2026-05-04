@@ -4,7 +4,7 @@ import re
 
 import typer
 
-from gx.lib.branch import branch_exists, current_branch, default_branch
+from gx.lib.branch import ahead_behind, branch_exists, current_branch, default_branch
 from gx.lib.config import config, resolve_worktree_directory
 from gx.lib.console import debug, error, set_verbosity, step, warning
 from gx.lib.git import check_git_repo, git, repo_root, set_dry_run
@@ -26,6 +26,13 @@ WORKTREE_OPTION: bool = typer.Option(
     "--worktree",
     "-w",
     help="Create the branch in a new worktree under .worktrees/feat/ instead of switching branches.",
+)
+
+LOCAL_OPTION: bool = typer.Option(
+    False,  # noqa: FBT003
+    "--local",
+    "-L",
+    help="Branch from the local default branch instead of fetching origin. Use to include unpushed commits on your local default branch.",
 )
 
 
@@ -88,28 +95,71 @@ def _resolve_branch_name(name: str | None) -> str:
     return f"{config.branch_prefix}/{_next_feat_number()}"
 
 
-def _resolve_start_point(default: str) -> str:
-    """Return the ref to branch from after fetching.
+def _resolve_start_point(default: str, *, local: bool) -> str:
+    """Return the ref to branch from.
 
-    Prefer the just-fetched remote-tracking ref (e.g. origin/main) so new
-    branches start from the latest remote state regardless of whether the
-    local default branch has been pulled. Fall back to the local default if
-    no remote-tracking ref exists (fresh repo, no remote, etc.).
+    With local=False (the default), prefer the just-fetched remote-tracking
+    ref (e.g. origin/main) so new branches start from the latest remote
+    state regardless of whether the local default branch has been pulled.
+    Fall back to the local default if no remote-tracking ref exists.
+
+    With local=True, branch from the local default ref so unpushed commits
+    on the user's local default branch are carried into the new branch.
     """
-    remote_ref = f"{config.remote_name}/{default}"
-    if git("rev-parse", "--verify", "--quiet", remote_ref).success:
-        return remote_ref
+    if not local:
+        remote_ref = f"{config.remote_name}/{default}"
+        if git("rev-parse", "--verify", "--quiet", remote_ref).success:
+            return remote_ref
     return default
 
 
-def _prepare_feat_branch(name: str | None) -> tuple[str, str]:
-    """Run shared guards and return (feat_branch, start_point).
+def _local_default_ahead_of_remote(default: str) -> int:
+    """Return the count of commits on local <default> not on origin/<default>.
 
-    Check for detached HEAD, fetch the default branch, warn if currently on
-    a feat/* branch, resolve the branch name, and verify it doesn't exist.
-    The returned start_point is origin/<default> when present so the new
-    branch is rooted at the freshly fetched remote tip rather than a stale
-    local pointer.
+    Used to detect the case where the user has unpushed commits on their
+    local default branch that the new feature branch will not include
+    because we branch from the freshly fetched remote tip. Returns 0 when
+    the comparison fails — ahead_behind() already returns None on missing
+    refs or rev-list failure, so no separate existence pre-check is needed.
+    """
+    counts = ahead_behind(default, f"{config.remote_name}/{default}")
+    return counts[0] if counts else 0
+
+
+def _maybe_warn_local_ahead(*, default: str, local: bool, name: str | None, worktree: bool) -> None:
+    """Inform the user when local default has unpushed commits not in the new branch.
+
+    No-op when local=True (the user already opted in to local mode) or when
+    local default matches the remote tip. Otherwise prints the count of
+    skipped commits and the exact `gx feat --local` command they can run to
+    branch from local instead, preserving worktree mode and branch name.
+    """
+    if local:
+        return
+    ahead = _local_default_ahead_of_remote(default)
+    if ahead == 0:
+        return
+
+    commit_word = "commit" if ahead == 1 else "commits"
+    warning(
+        f"Local {default} has {ahead} {commit_word} not on {config.remote_name}/{default}; new branch will not include them."
+    )
+    cmd = "gx feat -w --local" if worktree else "gx feat --local"
+    if name:
+        cmd += f" {name}"
+    warning(f"Run `{cmd}` to branch from local {default} instead.", detail=True)
+
+
+def _prepare_feat_branch(name: str | None, *, local: bool) -> tuple[str, str, str]:
+    """Run shared guards and return (feat_branch, start_point, default).
+
+    Check for detached HEAD, fetch the default branch (unless local=True),
+    warn if currently on a feat/* branch, resolve the branch name, and
+    verify it doesn't exist. The returned start_point is origin/<default>
+    when present (local=False) so the new branch is rooted at the freshly
+    fetched remote tip; with local=True it is the local default ref so
+    unpushed commits are carried into the new branch. `default` is exposed
+    so callers can compose follow-up messages without re-querying.
     """
     branch = current_branch()
     if branch is None:
@@ -118,8 +168,9 @@ def _prepare_feat_branch(name: str | None) -> tuple[str, str]:
 
     default = default_branch()
 
-    with step(f"Fetch latest {default} from {config.remote_name}"):
-        git("fetch", config.remote_name, default).raise_on_error()
+    if not local:
+        with step(f"Fetch latest {default} from {config.remote_name}"):
+            git("fetch", config.remote_name, default).raise_on_error()
 
     if branch.startswith(f"{config.branch_prefix}/"):
         warning(f"Currently on {branch}")
@@ -130,14 +181,15 @@ def _prepare_feat_branch(name: str | None) -> tuple[str, str]:
         error(f"Branch {feat_branch} already exists.")
         raise typer.Exit(1)
 
-    start_point = _resolve_start_point(default)
+    start_point = _resolve_start_point(default, local=local)
 
-    return feat_branch, start_point
+    return feat_branch, start_point, default
 
 
-def _create_branch(name: str | None) -> None:
+def _create_branch(name: str | None, *, local: bool = False) -> None:
     """Create a feature branch and switch to it."""
-    feat_branch, start_point = _prepare_feat_branch(name)
+    feat_branch, start_point, default = _prepare_feat_branch(name, local=local)
+    _maybe_warn_local_ahead(default=default, local=local, name=name, worktree=False)
 
     with step(f"Create branch {feat_branch} from {start_point}"):
         result = git("checkout", "-b", feat_branch, start_point)
@@ -152,9 +204,10 @@ def _create_branch(name: str | None) -> None:
             raise typer.Exit(1)
 
 
-def _create_worktree_branch(name: str | None) -> None:
+def _create_worktree_branch(name: str | None, *, local: bool = False) -> None:
     """Create a feature branch in a new worktree."""
-    feat_branch, start_point = _prepare_feat_branch(name)
+    feat_branch, start_point, default = _prepare_feat_branch(name, local=local)
+    _maybe_warn_local_ahead(default=default, local=local, name=name, worktree=True)
 
     root = repo_root()
     worktree_base = resolve_worktree_directory(root)
@@ -187,6 +240,7 @@ def feat(
     dry_run: bool = DRY_RUN_OPTION,  # noqa: FBT001
     name: str | None = NAME_ARGUMENT,
     worktree: bool = WORKTREE_OPTION,  # noqa: FBT001
+    local: bool = LOCAL_OPTION,  # noqa: FBT001
 ) -> None:
     """Create a new feature branch from the default branch.
 
@@ -200,12 +254,17 @@ def feat(
 
     Creates the branch in a new git worktree at .worktrees/feat/<name>. This lets you work on multiple branches simultaneously without stashing. Requires .worktrees/ to be listed in .gitignore.
 
+    [bold]Local mode (-L):[/bold]
+
+    Skips the fetch and branches from your local default branch instead of origin/<default>. Use this when you have unpushed commits on your local default branch that you want included in the new feature branch.
+
     [bold]Examples:[/bold]
 
       gx feat              Create feat/1 (or next available number)
       gx feat login        Create feat/login
       gx feat -w           Create feat/1 in a worktree
       gx feat -w ui        Create feat/ui in a worktree
+      gx feat -L           Create feat/1 from local <default> (no fetch)
       gx feat -n           Preview without creating anything
     """
     if verbose:
@@ -215,6 +274,6 @@ def feat(
     check_git_repo()
 
     if worktree:
-        _create_worktree_branch(name)
+        _create_worktree_branch(name, local=local)
     else:
-        _create_branch(name)
+        _create_branch(name, local=local)
