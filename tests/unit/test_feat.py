@@ -181,7 +181,6 @@ class TestFeatBranchMode:
         _create_branch(name=None)
 
         # Then checkout uses the remote-tracking ref so the branch starts from the freshly fetched tip
-        # and passes --no-track to prevent auto-tracking origin/main as upstream
         checkout_calls = [c for c in mock_git.call_args_list if c.args[0] == "checkout"]
         assert len(checkout_calls) == 1
         assert checkout_calls[0].args == ("checkout", "--no-track", "-b", "feat/1", "origin/main")
@@ -203,7 +202,6 @@ class TestFeatBranchMode:
         _create_branch(name="login")
 
         # Then checkout uses the remote-tracking ref so the branch starts from the freshly fetched tip
-        # and passes --no-track to prevent auto-tracking origin/main as upstream
         checkout_calls = [c for c in mock_git.call_args_list if c.args[0] == "checkout"]
         assert len(checkout_calls) == 1
         assert checkout_calls[0].args == (
@@ -242,7 +240,7 @@ class TestFeatBranchMode:
         # When creating a branch with no remote-tracking ref available
         _create_branch(name=None)
 
-        # Then checkout falls back to the local default branch name with --no-track
+        # Then checkout falls back to the local default branch name
         checkout_calls = [c for c in mock_git.call_args_list if c.args[0] == "checkout"]
         assert len(checkout_calls) == 1
         assert checkout_calls[0].args == ("checkout", "--no-track", "-b", "feat/1", "main")
@@ -346,7 +344,7 @@ class TestFeatBranchMode:
         # When creating a branch with --local
         _create_branch(name="login", local=True)
 
-        # Then no fetch was performed and checkout uses the local default ref with --no-track
+        # Then no fetch was performed and checkout uses the local default ref
         fetch_calls = [c for c in mock_git.call_args_list if c.args and c.args[0] == "fetch"]
         assert len(fetch_calls) == 0
         checkout_calls = [c for c in mock_git.call_args_list if c.args[0] == "checkout"]

@@ -1,25 +1,12 @@
 """Integration tests for gx feat command."""
 
-import subprocess
-
 from typer.testing import CliRunner
 
 from gx.cli import app
+from gx.lib.branch import has_upstream_branch
 from tests.conftest import checkout_tmp_branch, create_tmp_branch, create_tmp_commit
 
 runner = CliRunner()
-
-
-def _has_upstream(cwd) -> bool:
-    """Return True if HEAD has an upstream tracking ref configured."""
-    result = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],  # noqa: S607
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.returncode == 0
 
 
 class TestFeatBranch:
@@ -59,7 +46,7 @@ class TestFeatBranch:
         assert result.exit_code == 0
 
         # Then the new branch must not be tracking any upstream
-        assert not _has_upstream(tmp_git_repo)
+        assert not has_upstream_branch("feat/1")
 
 
 class TestFeatWorktree:
@@ -92,5 +79,4 @@ class TestFeatWorktree:
         assert result.exit_code == 0
 
         # Then the worktree's branch must not be tracking any upstream
-        worktree_path = tmp_git_repo / ".worktrees" / "feat" / "1"
-        assert not _has_upstream(worktree_path)
+        assert not has_upstream_branch("feat/1")

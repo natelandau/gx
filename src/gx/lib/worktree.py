@@ -123,9 +123,7 @@ def create_worktree(path: Path, branch: str, start_point: str | None = None) -> 
     Returns:
         GitResult: The result of the git worktree add command.
     """
-    # --no-track prevents auto-tracking when start_point is a remote ref like
-    # origin/main; without it, push and PR creation would target the default branch.
-    args = ["worktree", "add", str(path), "-b", branch, "--no-track"]
+    args = ["worktree", "add", "--no-track", "-b", branch, str(path)]
     if start_point is not None:
         args.append(start_point)
     return git(*args)
