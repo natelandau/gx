@@ -5,21 +5,22 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import typer
+from nllog import error, get_default
 from rich.panel import Panel
 
 from gx.lib.branch import collect_branch_data, current_branch
-
-if TYPE_CHECKING:
-    from rich.text import Text
-    from rich.tree import Tree
-from gx.lib.console import console, error
 from gx.lib.display import render_branch_panel
 from gx.lib.git import check_git_repo, git, repo_root
 from gx.lib.status_panel import StatusPanel, _info_text
 
+if TYPE_CHECKING:
+    from rich.text import Text
+    from rich.tree import Tree
+
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
+console = get_default().console
 
 
 def _print_status_output(
@@ -75,8 +76,8 @@ def status(
 
     [bold]Panels:[/bold]
 
-    - [bold]File tree[/bold] — changed files on the current branch, with git status codes
-    - [bold]Branches[/bold] — all active branches with ahead/behind, file counts, stashes
+    - [bold]File tree[/bold] - changed files on the current branch, with git status codes
+    - [bold]Branches[/bold] - all active branches with ahead/behind, file counts, stashes
 
     [bold]Examples:[/bold]
 

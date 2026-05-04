@@ -4,8 +4,8 @@ import subprocess
 
 import pytest
 import typer
+from nllog import configure
 
-from gx.lib.console import set_verbosity
 from gx.lib.git import (
     GitResult,
     _is_read_only,
@@ -304,7 +304,7 @@ class TestGitFunction:
         """Verify skipped command is printed exactly once with -v."""
         # Given dry-run is active and verbosity is DEBUG
         set_dry_run(enabled=True)
-        set_verbosity(1)
+        configure(verbosity=1)
 
         # When running a mutating command
         git("push", "origin", "main")
@@ -316,7 +316,7 @@ class TestGitFunction:
     def test_debug_logs_command(self, mocker, capsys):
         """Verify git() logs command via debug() at verbosity DEBUG."""
         # Given verbosity is DEBUG
-        set_verbosity(1)
+        configure(verbosity=1)
 
         # Given a mocked subprocess
         mocker.patch(
@@ -337,7 +337,7 @@ class TestGitFunction:
     def test_trace_pipes_stdout(self, mocker, capsys):
         """Verify git() pipes stdout lines through trace() at verbosity TRACE."""
         # Given verbosity is TRACE
-        set_verbosity(2)
+        configure(verbosity=2)
 
         # Given a mocked subprocess with stdout
         mocker.patch(
@@ -356,14 +356,13 @@ class TestGitFunction:
 
         # Then stdout lines are piped through trace()
         captured = capsys.readouterr()
-        assert "git>" in captured.out
         assert "first commit" in captured.out
         assert "second commit" in captured.out
 
     def test_trace_pipes_stderr(self, mocker, capsys):
         """Verify git() pipes stderr lines through trace() at verbosity TRACE."""
         # Given verbosity is TRACE
-        set_verbosity(2)
+        configure(verbosity=2)
 
         # Given a mocked subprocess with stderr
         mocker.patch(

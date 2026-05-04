@@ -53,18 +53,18 @@ def _make_table() -> Table:
         pad_edge=False,
         padding=(0, 2),
     )
-    table.add_column(style="log_sha", no_wrap=True, width=7)
-    table.add_column(style="log_time", no_wrap=True)
+    table.add_column(style="yellow", no_wrap=True, width=7)
+    table.add_column(style="green", no_wrap=True)
     table.add_column(no_wrap=False, ratio=1)
-    table.add_column(style="log_author", no_wrap=True, justify="right")
+    table.add_column(style="bold blue", no_wrap=True, justify="right")
     return table
 
 
 def _render_refs(entry: LogEntry) -> Text:
     """Build inline ref badge Text for a single commit."""
     refs = Text()
-    items: list[tuple[str, str]] = [(f" {b} ", "ref.branch") for b in entry.branches] + [
-        (f" \U0001f3f7 {t} ", "ref.tag") for t in entry.tags
+    items: list[tuple[str, str]] = [(f" {b} ", "reverse bold magenta") for b in entry.branches] + [
+        (f" \U0001f3f7 {t} ", "reverse bold cyan") for t in entry.tags
     ]
     for i, (label, style) in enumerate(items):
         refs.append(label, style=style)
@@ -82,10 +82,10 @@ def _add_row(table: Table, entry: LogEntry, *, dim: bool = False) -> None:
         subject_col.append(" ")
     subject_col.append(entry.subject, style=style)
     table.add_row(
-        Text(entry.sha, style=style or "log_sha"),
-        Text(entry.relative_time, style=style or "log_time"),
+        Text(entry.sha, style=style or "yellow"),
+        Text(entry.relative_time, style=style or "green"),
         subject_col,
-        Text(entry.author, style=style or "log_author"),
+        Text(entry.author, style=style or "bold"),
     )
 
 
@@ -238,8 +238,7 @@ class LogPanel:
             row_table = _make_table()
             _add_row(row_table, entry, dim=dim)
             if entry.body:
-                body_style = "dim" if dim else "log_body"
-                row_table.add_row("", "", Text(entry.body, style=body_style), "")
+                row_table.add_row("", "", Text(entry.body, style="dim"), "")
                 renderables.append(row_table)
                 renderables.append(Text(""))
             else:

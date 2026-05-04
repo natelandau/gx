@@ -7,9 +7,10 @@ operations against the current branch's upstream.
 from __future__ import annotations
 
 import typer
+from nllog import error, step, success
 
 from gx.lib.branch import current_branch, tracking_branch
-from gx.lib.console import error, step, step_result
+from gx.lib.display import commit_text
 from gx.lib.git import git
 from gx.lib.workspace import is_rebase_in_progress, rollback
 
@@ -22,7 +23,7 @@ def validate_branch() -> tuple[str, str, str]:
     """
     branch = current_branch()
     if branch is None:
-        error("Cannot sync — HEAD is detached.")
+        error("Cannot sync - HEAD is detached.")
         raise typer.Exit(1)
 
     tracking = tracking_branch()
@@ -51,11 +52,15 @@ def fetch_and_rebase(remote: str, remote_branch: str, *, stashed: bool) -> None:
         result = git("pull", "--rebase", remote, remote_branch)
         if not result.success:
             if is_rebase_in_progress():
-                error("Rebase conflict detected")
-                error("1. Fix the conflicts in the affected files", detail=True)
-                error("2. Stage the resolved files with 'git add'", detail=True)
-                error("3. Continue with 'git rebase --continue'", detail=True)
-                error("Or abort with 'git rebase --abort'", detail=True)
+                error(
+                    "Rebase conflict detected",
+                    details=[
+                        "1. Fix the conflicts in the affected files",
+                        "2. Stage the resolved files with 'git add'",
+                        "3. Continue with 'git rebase --continue'",
+                        "Or abort with 'git rebase --abort'",
+                    ],
+                )
             else:
                 error(f"Failed to pull from {remote}/{remote_branch}")
             rollback(stashed=stashed)
@@ -71,15 +76,15 @@ def print_pull_summary(head_before: str, remote: str, remote_branch: str) -> Non
     """
     head_after = git("rev-parse", "HEAD")
     if head_before == head_after.stdout:
-        step_result("Already up to date")
+        success("Already up to date")
         return
 
     log_result = git("log", "--oneline", f"{head_before}..{head_after.stdout}")
     if log_result.success and log_result.stdout:
         commits = log_result.stdout.splitlines()
-        step_result(
+        success(
             f"Pull {len(commits)} new commit(s) from {remote}/{remote_branch}",
-            subs=commits,
+            details=[commit_text(c) for c in commits],
         )
     else:
-        step_result("Pull complete")
+        success("Pull complete")

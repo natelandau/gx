@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import typer
+from nllog import configure
 from typer import rich_utils
 
 from gx import __version__
 from gx.commands import clean, done, feat, info, log, pull, push, status
-from gx.lib.console import set_verbosity
 from gx.lib.git import check_git_installed, git
 from gx.lib.options import VERBOSE_OPTION
 
@@ -71,7 +71,7 @@ def callback(
 
     Configure defaults in ~/.config/gx/config.toml
     """
-    set_verbosity(verbose)
+    configure(verbosity=verbose)
     check_git_installed()
     if ctx.invoked_subcommand is None:
         if _is_git_repo():

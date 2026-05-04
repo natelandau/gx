@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 
 import typer
+from nllog import configure, error, step, warning
 from rich.prompt import Confirm
 
 from gx.lib.branch import ahead_behind, current_branch, default_branch, is_gone, is_merged
-from gx.lib.console import error, set_verbosity, step, warning
 from gx.lib.git import check_git_repo, git, set_dry_run
 from gx.lib.github import pr_state
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
@@ -104,7 +104,7 @@ def _verify_merged(branch: str, target: str) -> None:
     if state == "MERGED":
         return
 
-    # gh is authoritative for GitHub remotes — only fall through to git signals when gh
+    # gh is authoritative for GitHub remotes - only fall through to git signals when gh
     # provided no answer (no gh installed, non-GitHub remote, or no PR for branch). The
     # fetch lives in this branch because is_gone/is_merged need fresh refs; pr_state
     # doesn't, and a successful gh check would make the fetch wasted work.
@@ -157,7 +157,7 @@ def done(
       gx done -v           Run with debug output
     """
     if verbose:
-        set_verbosity(verbose)
+        configure(verbosity=verbose)
     if dry_run:
         set_dry_run(enabled=True)
     check_git_repo()
@@ -169,8 +169,10 @@ def done(
 
     target = default_branch()
     if branch == target:
-        error("Already on the default branch — nothing to do.")
-        error("To clean up merged branches/worktrees, run: gx pull && gx clean", detail=True)
+        error(
+            "Already on the default branch - nothing to do.",
+            details=["To clean up merged branches/worktrees, run: gx pull && gx clean"],
+        )
         raise typer.Exit(1)
 
     worktree, main_path = _detect_worktree_context()

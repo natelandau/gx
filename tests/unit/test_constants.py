@@ -3,22 +3,7 @@
 from gx.constants import (
     READ_ONLY_GIT_COMMANDS,
     READ_ONLY_GIT_COMPOUND_COMMANDS,
-    Verbosity,
 )
-
-
-def test_verbosity_values() -> None:
-    """Verify Verbosity enum has correct integer values."""
-    assert Verbosity.INFO == 0
-    assert Verbosity.DEBUG == 1
-    assert Verbosity.TRACE == 2
-
-
-def test_verbosity_comparison() -> None:
-    """Verify Verbosity supports integer comparison."""
-    assert Verbosity.TRACE >= Verbosity.DEBUG
-    assert Verbosity.DEBUG >= Verbosity.INFO
-    assert not Verbosity.INFO >= Verbosity.DEBUG
 
 
 def test_read_only_git_commands_is_frozenset() -> None:
