@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import typer
+from nllog import configure, error, info, step, success, warning
 from rich.prompt import Confirm
 
 from gx.lib.branch import current_branch, default_branch, tracking_branch
 from gx.lib.config import config
-from gx.lib.console import error, info, set_verbosity, step, step_result, warning
+from gx.lib.display import commit_text
 from gx.lib.git import check_git_repo, get_dry_run, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 
@@ -92,7 +93,10 @@ def _print_summary(
 
     commits = log_result.stdout.splitlines()
     verb = "Would push" if get_dry_run() else "Push"
-    step_result(f"{verb} {len(commits)} commit(s) to {remote}/{remote_branch}", subs=commits)
+    success(
+        f"{verb} {len(commits)} commit(s) to {remote}/{remote_branch}",
+        details=[commit_text(c) for c in commits],
+    )
 
 
 FORCE_OPTION: bool = typer.Option(
@@ -136,7 +140,7 @@ def push(
       gx push -n           Preview what would be pushed
     """
     if verbose:
-        set_verbosity(verbose)
+        configure(verbosity=verbose)
     if dry_run:
         set_dry_run(enabled=True)
     check_git_repo()

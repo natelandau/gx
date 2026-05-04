@@ -3,10 +3,10 @@
 import re
 
 import typer
+from nllog import configure, debug, error, step, warning
 
 from gx.lib.branch import ahead_behind, branch_exists, current_branch, default_branch
 from gx.lib.config import config, resolve_worktree_directory
-from gx.lib.console import debug, error, set_verbosity, step, warning
 from gx.lib.git import check_git_repo, git, repo_root, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 from gx.lib.workspace import is_dirty
@@ -119,7 +119,7 @@ def _local_default_ahead_of_remote(default: str) -> int:
     Used to detect the case where the user has unpushed commits on their
     local default branch that the new feature branch will not include
     because we branch from the freshly fetched remote tip. Returns 0 when
-    the comparison fails — ahead_behind() already returns None on missing
+    the comparison fails - ahead_behind() already returns None on missing
     refs or rev-list failure, so no separate existence pre-check is needed.
     """
     counts = ahead_behind(default, f"{config.remote_name}/{default}")
@@ -141,13 +141,13 @@ def _maybe_warn_local_ahead(*, default: str, local: bool, name: str | None, work
         return
 
     commit_word = "commit" if ahead == 1 else "commits"
-    warning(
-        f"Local {default} has {ahead} {commit_word} not on {config.remote_name}/{default}; new branch will not include them."
-    )
     cmd = "gx feat -w --local" if worktree else "gx feat --local"
     if name:
         cmd += f" {name}"
-    warning(f"Run `{cmd}` to branch from local {default} instead.", detail=True)
+    warning(
+        f"Local {default} has {ahead} {commit_word} not on {config.remote_name}/{default}; new branch will not include them.",
+        details=[f"Run `{cmd}` to branch from local {default} instead."],
+    )
 
 
 def _prepare_feat_branch(name: str | None, *, local: bool) -> tuple[str, str, str]:
@@ -196,9 +196,9 @@ def _create_branch(name: str | None, *, local: bool = False) -> None:
         if not result.success:
             if is_dirty():
                 error(
-                    "Checkout failed due to uncommitted changes that conflict with the target branch"
+                    "Checkout failed due to uncommitted changes that conflict with the target branch",
+                    details=["Commit or stash your changes first, then try again"],
                 )
-                error("Commit or stash your changes first, then try again", detail=True)
             else:
                 error(result.stderr or f"Failed to create branch {feat_branch}")
             raise typer.Exit(1)
@@ -268,7 +268,7 @@ def feat(
       gx feat -n           Preview without creating anything
     """
     if verbose:
-        set_verbosity(verbose)
+        configure(verbosity=verbose)
     if dry_run:
         set_dry_run(enabled=True)
     check_git_repo()

@@ -1,7 +1,6 @@
 """Constants for the gx package."""
 
 import os
-from enum import IntEnum
 from pathlib import Path
 from typing import Literal
 
@@ -16,14 +15,6 @@ STATE_DIR = (
 CACHE_DIR = Path(os.getenv("XDG_CACHE_HOME", "~/.cache")).expanduser().absolute() / PACKAGE_NAME
 PROJECT_ROOT_PATH = Path(__file__).parents[2].absolute()
 PACKAGE_ROOT_PATH = Path(__file__).parents[0].absolute()
-
-
-class Verbosity(IntEnum):
-    """Output verbosity levels for the CLI."""
-
-    INFO = 0
-    DEBUG = 1
-    TRACE = 2
 
 
 READ_ONLY_GIT_COMMANDS: frozenset[str] = frozenset(

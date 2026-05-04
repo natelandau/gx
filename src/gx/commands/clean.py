@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import typer
+from nllog import configure, step, success, warning
 from rich.prompt import Confirm
 
 from gx.lib.branch import current_branch
 from gx.lib.config import config
-from gx.lib.console import set_verbosity, step, step_result, warning
 from gx.lib.git import check_git_repo, get_dry_run, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 from gx.lib.stale_analyzer import CleanCandidate, StaleAnalyzer
@@ -43,13 +43,17 @@ def _display_candidates(
         if branch_candidates:
             subs.append("Branches:")
             subs.extend(f"  {c.branch}  ({c.reason})" for c in branch_candidates)
-        step_result(f"Find {total} stale item{'s' if total != 1 else ''}", subs=subs)
+        success(f"Find {total} stale item{'s' if total != 1 else ''}", details=subs)
 
     if skipped:
-        warning("Skipped (dirty worktree, use --force):")
-        for c in skipped:
-            if c.worktree is not None:
-                warning(f"  {c.worktree.path}  (branch: {c.branch}, {c.reason})", detail=True)
+        warning(
+            "Skipped (dirty worktree, use --force):",
+            details=[
+                f"{c.worktree.path}  (branch: {c.branch}, {c.reason})"
+                for c in skipped
+                if c.worktree is not None
+            ],
+        )
 
 
 def _remove_candidates(
@@ -106,7 +110,7 @@ def _print_removal_summary(wt_removed: int, br_removed: int) -> None:
 
     if parts:
         verb = "Would remove" if get_dry_run() else "Remove"
-        step_result(f"{verb} {' and '.join(parts)}")
+        success(f"{verb} {' and '.join(parts)}")
 
 
 FORCE_OPTION: bool = typer.Option(
@@ -154,7 +158,7 @@ def clean(
       gx clean -n          Preview what would be removed
     """
     if verbose:
-        set_verbosity(verbose)
+        configure(verbosity=verbose)
     if dry_run:
         set_dry_run(enabled=True)
     check_git_repo()
@@ -171,7 +175,7 @@ def clean(
         if wt_skipped:
             _display_candidates([], [], wt_skipped)
         else:
-            step_result("Nothing to clean")
+            success("Nothing to clean")
         return
 
     _display_candidates(wt_candidates, br_candidates, wt_skipped)

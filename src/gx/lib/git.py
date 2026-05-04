@@ -21,9 +21,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import typer
+from nllog import debug, dryrun, error, trace
 
 from gx.constants import READ_ONLY_GIT_COMMANDS, READ_ONLY_GIT_COMPOUND_COMMANDS
-from gx.lib.console import debug, dryrun, error, trace
 
 
 @dataclass(frozen=True)

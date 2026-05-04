@@ -6,7 +6,6 @@ from io import StringIO
 
 from rich.console import Console
 
-from gx.lib.console import GX_THEME
 from gx.lib.log_panel import LogPanel, _parse_entries
 
 
@@ -119,7 +118,7 @@ class TestLogPanelRender:
         panel = panel_obj.render()
         # Then
         buf = StringIO()
-        console = Console(file=buf, width=120, theme=GX_THEME)
+        console = Console(file=buf, width=120)
         console.print(panel)
         output = buf.getvalue()
         assert "9c96da2" in output
@@ -141,7 +140,7 @@ class TestLogPanelRender:
         panel = panel_obj.render()
         # Then
         buf = StringIO()
-        console = Console(file=buf, width=120, theme=GX_THEME)
+        console = Console(file=buf, width=120)
         console.print(panel)
         output = buf.getvalue()
         assert "main" in output
@@ -162,7 +161,7 @@ class TestLogPanelRender:
         panel = panel_obj.render()
         # Then
         buf = StringIO()
-        console = Console(file=buf, width=120, theme=GX_THEME)
+        console = Console(file=buf, width=120)
         console.print(panel)
         output = buf.getvalue()
         assert "v1.0" in output
@@ -184,7 +183,7 @@ class TestLogPanelRender:
         panel = panel_obj.render()
         # Then
         buf = StringIO()
-        console = Console(file=buf, width=120, theme=GX_THEME)
+        console = Console(file=buf, width=120)
         console.print(panel)
         output = buf.getvalue()
         assert "Detailed body" in output
@@ -233,7 +232,7 @@ class TestLogPanelRender:
         panel = panel_obj.render()
         # Then
         buf = StringIO()
-        console = Console(file=buf, width=120, theme=GX_THEME)
+        console = Console(file=buf, width=120)
         console.print(panel)
         output = buf.getvalue()
         assert "My Log" in output

@@ -18,6 +18,17 @@ from rich.text import Text
 if TYPE_CHECKING:
     from gx.lib.branch import BranchRow
 
+_COMMIT_TYPES = "feat|fix|refactor|perf|build|ci|docs|style|test|chore|bump"
+
+
+def commit_text(line: str) -> Text:
+    """Color SHAs, conventional-commit types/scopes, and PR refs in a commit line."""
+    text = Text(line)
+    text.highlight_regex(r"\b[0-9a-f]{7,12}\b", "yellow")
+    text.highlight_regex(rf"(?:{_COMMIT_TYPES})(?:\([^)]+\))?:", "cyan")
+    text.highlight_regex(r"\(#\d+\)", "magenta")
+    return text
+
 
 def kv_grid(rows: list[tuple[str | Text, str | Text]]) -> Table:
     """Build a right-aligned label / left-aligned value grid for info panels.
@@ -30,8 +41,8 @@ def kv_grid(rows: list[tuple[str | Text, str | Text]]) -> Table:
         A Rich Table configured as a two-column grid.
     """
     grid = Table.grid(padding=(0, 2))
-    grid.add_column(style="dim_label", justify="right")
-    grid.add_column(style="value")
+    grid.add_column(style="dim", justify="right")
+    grid.add_column(style="default")
     for label, value in rows:
         grid.add_row(label, value)
     return grid
@@ -45,7 +56,7 @@ def _tracking_ref_text(row: BranchRow) -> Text:
     """
     text = Text()
     if row.tracking_ref:
-        text.append(row.tracking_ref, style="branch_target")
+        text.append(row.tracking_ref, style="cyan")
     return text
 
 
@@ -63,11 +74,11 @@ def _ahead_behind_text(row: BranchRow) -> Text:
     behind = row.behind_remote or 0
 
     if ahead:
-        text.append(f"↑{ahead}", style="ahead")
+        text.append(f"↑{ahead}", style="green")
     if ahead and behind:
         text.append(" ")
     if behind:
-        text.append(f"↓{behind}", style="behind")
+        text.append(f"↓{behind}", style="red")
 
     return text
 
@@ -83,10 +94,10 @@ def _file_counts_text(row: BranchRow) -> Text:
     """
     text = Text()
     parts: list[tuple[str, int, str]] = [
-        ("+", row.staged, "staged"),
-        ("~", row.modified, "unstaged"),
-        ("!", row.unmerged, "warning.message"),
-        ("?", row.untracked, "untracked"),
+        ("+", row.staged, "green"),
+        ("~", row.modified, "red"),
+        ("!", row.unmerged, "bold yellow"),
+        ("?", row.untracked, "cyan"),
     ]
     first = True
     for sigil, count, style in parts:
@@ -124,16 +135,16 @@ def render_branch_panel(rows: list[BranchRow]) -> Panel | None:
     for row in rows:
         name_text = Text()
         if row.is_current:
-            name_text.append("* ", style="branch_current")
+            name_text.append("* ", style="bold default")
         else:
             name_text.append("  ")
-        name_text.append(row.branch, style="branch_current" if row.is_current else "default")
+        name_text.append(row.branch, style="bold default" if row.is_current else "default")
         if row.is_worktree:
             name_text.append(" [wt]", style="dim")
 
         stash_text = Text()
         if row.stashes:
-            stash_text.append(f"≡{row.stashes}", style="stash_branch")
+            stash_text.append(f"≡{row.stashes}", style="cyan")
 
         grid.add_row(
             name_text,
@@ -171,13 +182,13 @@ def render_working_tree_panel(
     total = staged + modified + unmerged + untracked
 
     if total == 0:
-        text.append("✓ Clean", style="clean")
+        text.append("✓ Clean", style="green")
     else:
         parts: list[tuple[str, int, str]] = [
-            (f"+{staged} staged", staged, "staged"),
-            (f"~{modified} modified", modified, "unstaged"),
-            (f"!{unmerged} unmerged", unmerged, "warning.message"),
-            (f"?{untracked} untracked", untracked, "untracked"),
+            (f"+{staged} staged", staged, "green"),
+            (f"~{modified} modified", modified, "red"),
+            (f"!{unmerged} unmerged", unmerged, "bold yellow"),
+            (f"?{untracked} untracked", untracked, "cyan"),
         ]
         first = True
         for label, count, style in parts:

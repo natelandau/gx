@@ -33,19 +33,21 @@ uv run ruff format src/  # Format code
 src/gx/
     __init__.py              # Version string
     cli.py                   # Root Typer app, subcommand registration, main()
-    constants.py             # Package constants, Verbosity enum
+    constants.py             # Package constants (read-only command sets, paths)
     commands/
         __init__.py
         clean.py             # Branch/worktree cleanup (UI, confirmation, removal)
         done.py              # Post-merge cleanup: checkout main, pull, delete branch
         feat.py              # Feature branch/worktree management
+        info.py              # Repository dashboard
+        log.py               # Git log subcommand
         pull.py              # Pull subcommand
         push.py              # Push subcommand
+        status.py            # Status subcommand
     lib/
         __init__.py
         branch.py            # Branch queries: current, default, merged/gone/empty
         config.py            # User config (GxConfig), TOML loading, env overrides
-        console.py           # Global Console, theme, leveled print helpers
         display.py           # Shared Rich renderers: branch panel, working tree panel
         git.py               # Git subprocess wrapper, GitResult, dry-run
         github.py            # GitHub CLI wrapper (gh)
@@ -66,21 +68,17 @@ src/gx/
 
 ### Console Output
 
-- Global `Console` instances and theme defined in `src/gx/lib/console.py`
-- Styles centralized in `GX_THEME` — never use inline Rich markup in commands
-- `GitHighlighter` auto-colors SHAs (yellow), commit types (cyan), scopes (blue), and PR refs (magenta)
-- Import print helpers: `from gx.lib.console import console, step, debug, trace, dryrun, warning, error`
-  - `step("message")` — context manager: spinner while running, `✓`/`✗` on completion, always shown
-    - Use `s.sub("text")` inside `with step(...) as s:` to queue sub-items (printed after marker with `│` pipe)
-    - Only use for operations that take time; for display-only output use `console.print()` with step styling
-  - `debug()` — shown with `-v`, cyan, `›` prefix, stdout
-  - `trace()` — shown with `-vv`, bright_black, `git>` prefix, stdout
-  - `dryrun()` — always shown, bold cyan, `[DRY RUN]` prefix, stdout
-  - `warning()` — always shown, yellow, `!` prefix, stderr. Use `detail=True` for subsequent lines (no marker, indented)
-  - `error()` — always shown, bold red, `✗` prefix, stderr. Use `detail=True` for subsequent lines (no marker, indented)
-- For tables/panels/direct Rich usage: `from gx.lib.console import console`
-- Verbosity set via `-v`/`-vv` flags on root command, wired through `set_verbosity()`
-- All user-supplied strings are escaped with `rich.markup.escape()` to prevent bracket injection
+- Output is handled by the external `nllog` package — never call `print()` or instantiate `rich.Console()` directly
+- Import print helpers: `from nllog import step, success, debug, trace, dryrun, info, warning, error`
+  - `step("message")` — context manager: spinner while running, `✓`/`✗` on completion
+    - Use `s.sub("text")` inside `with step(...) as s:` to queue sub-items
+  - `success(msg, details=[...])` — terminal success line with optional sub-items
+  - `debug()` — shown with `-v`
+  - `trace()` — shown with `-vv`
+  - `dryrun()` — always shown, prefixed `[dry-run]`
+  - `warning(msg, details=[...])` / `error(msg, details=[...])` — stderr; pass a list for follow-up lines
+- For tables/panels/direct Rich usage: `from nllog import get_default; console = get_default().console`
+- Verbosity set via `-v`/`-vv` flags on root command, wired through `nllog.configure(verbosity=...)`
 
 ### Git Execution
 

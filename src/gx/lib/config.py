@@ -7,8 +7,9 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from nllog import warning
+
 from gx.constants import CONFIG_DIR
-from gx.lib.console import warning
 
 
 @dataclass(frozen=True)

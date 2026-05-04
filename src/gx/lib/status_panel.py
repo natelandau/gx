@@ -61,14 +61,14 @@ def _status_text(code: str) -> Text:
     worktree_char = code[1]
 
     if code == "??":
-        text.append(code, style="untracked")
+        text.append(code, style="cyan")
     else:
         if index_char != " ":
-            text.append(index_char, style="staged")
+            text.append(index_char, style="green")
         else:
             text.append(index_char)
         if worktree_char != " ":
-            text.append(worktree_char, style="unstaged")
+            text.append(worktree_char, style="red")
         else:
             text.append(worktree_char)
 

@@ -4,7 +4,7 @@
         "Programming Language :: Python :: 3.13",
         "Programming Language :: Python :: 3.14",
     ]
-    dependencies = ["rich>=15.0.0", "typer>=0.25.1"]
+    dependencies = ["nllog>=0.2.0", "rich>=15.0.0, <16.0.0", "typer>=0.25.1, <0.26.0"]
     description = "A CLI that wraps common git commands with sensible defaults, safety guards, and helpful summaries."
     license = { file = "LICENSE" }
     name = "git-gx"
@@ -94,23 +94,19 @@
     target-version = "py313"
     [tool.ruff.lint]
         ignore = [
-            "ANN002", # Missing type annotation for `*args`
-            "ANN003", # Missing type annotation for `**kwargs`
-            "ANN204", # missing return type annotation for special method `__init__`
-            # "B006",    # mutable-argument-default
-            # "B008",    # function-call-in-default-argument
+            "ANN002",  # Missing type annotation for `*args`
+            "ANN003",  # Missing type annotation for `**kwargs`
+            "ANN204",  # missing return type annotation for special method `__init__`
             "COM812",  # Trailing comma missing"
             "CPY001",  # Missing copyright notice at top of file
             "D107",    # undocumented-public-init
             "E501",    # line-too-long
+            "FIX002",  # Line contains TODO, consider resolving the issue
             "PLC0415", # Imports should be at top of file
-            # "FBT001", # Boolean-typed positional argument in function definition
-            # "FBT002", # Boolean-typed positional argument in function definition
-            "FIX002", # Line contains TODO, consider resolving the issue
-            "S311",   # suspicious-non-cryptographic-random-usage
-            "TD001",  # invalid-todo-tag
-            "TD002",  # Missing author in TODO
-            "TD003",  # Missing issue link on the line following this TODO
+            "S311",    # suspicious-non-cryptographic-random-usage
+            "TD001",   # invalid-todo-tag
+            "TD002",   # Missing author in TODO
+            "TD003",   # Missing issue link on the line following this TODO
         ]
         per-file-ignores = { "tests/**/*.py" = [
             "A002",

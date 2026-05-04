@@ -19,8 +19,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import typer
+from nllog import error
 
-from gx.lib.console import error
 from gx.lib.git import git
 
 if TYPE_CHECKING:

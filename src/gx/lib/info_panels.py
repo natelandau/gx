@@ -186,14 +186,14 @@ class RepoPanel:
 
         head_result = git("rev-parse", "--short", "HEAD")
         head_val: str | Text = (
-            Text(head_result.stdout, style="log_sha")
+            Text(head_result.stdout, style="yellow")
             if head_result.success and head_result.stdout
             else "\u2014"
         )
 
         tag_result = git("describe", "--tags", "--abbrev=0")
         tag_val: str | Text = (
-            Text(tag_result.stdout, style="log_ref_tag")
+            Text(tag_result.stdout, style="bold yellow")
             if tag_result.success and tag_result.stdout
             else "\u2014"
         )
@@ -278,11 +278,11 @@ class GitHubPanel:
             fork_val = Text(f"Yes \u2014 {parent_name}", style="dim")
 
         pr_count = _gh_open_count("pr")
-        pr_text = Text(str(pr_count), style="ahead") if pr_count is not None else Text("\u2014")
+        pr_text = Text(str(pr_count), style="green") if pr_count is not None else Text("\u2014")
 
         issue_count = _gh_open_count("issue")
         issue_text = (
-            Text(str(issue_count), style="unstaged") if issue_count is not None else Text("\u2014")
+            Text(str(issue_count), style="red") if issue_count is not None else Text("\u2014")
         )
 
         rows: list[tuple[str | Text, str | Text]] = [
@@ -323,7 +323,7 @@ class StashPanel:
         total = sum(self.stashes.values())
         rows: list[tuple[str | Text, str | Text]] = [("Total", str(total))]
         rows.extend(
-            (Text(branch, style="stash_branch"), str(self.stashes[branch]))
+            (Text(branch, style="cyan"), str(self.stashes[branch]))
             for branch in sorted(self.stashes)
         )
 
@@ -350,8 +350,8 @@ class WorktreePanel:
             return None
 
         grid = Table.grid(padding=(0, 2))
-        grid.add_column(style="wt_branch")
-        grid.add_column(style="wt_path")
+        grid.add_column(style="cyan")
+        grid.add_column(style="dim")
 
         for wt in worktrees:
             branch = wt.branch or "(detached)"

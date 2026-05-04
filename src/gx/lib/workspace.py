@@ -10,8 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import typer
+from nllog import error, step, warning
 
-from gx.lib.console import error, step, warning
 from gx.lib.git import git, repo_root
 
 
@@ -94,11 +94,12 @@ def unstash(*, stashed: bool) -> None:
     with step("Restore stashed changes"):
         result = git("stash", "pop")
         if not result.success:
-            warning("Could not cleanly restore stashed changes")
             warning(
-                "The git operation succeeded, but stashed changes conflict with the updated code",
-                detail=True,
+                "Could not cleanly restore stashed changes",
+                details=[
+                    "The git operation succeeded, but stashed changes conflict with the updated code",
+                    "Run 'git stash show' to see stashed changes",
+                    "Run 'git stash pop' to try again, or 'git stash drop' to discard",
+                ],
             )
-            warning("Run 'git stash show' to see stashed changes", detail=True)
-            warning("Run 'git stash pop' to try again, or 'git stash drop' to discard", detail=True)
             raise typer.Exit(1)
