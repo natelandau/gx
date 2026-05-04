@@ -123,7 +123,7 @@ def create_worktree(path: Path, branch: str, start_point: str | None = None) -> 
     Returns:
         GitResult: The result of the git worktree add command.
     """
-    args = ["worktree", "add", str(path), "-b", branch]
+    args = ["worktree", "add", "--no-track", "-b", branch, str(path)]
     if start_point is not None:
         args.append(start_point)
     return git(*args)
