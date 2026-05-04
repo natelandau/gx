@@ -322,6 +322,107 @@ class TestFeatBranchMode:
         captured = capsys.readouterr()
         assert "stash" in captured.err.lower() or "commit" in captured.err.lower()
 
+    def test_skips_fetch_when_local(self, mocker):
+        """Verify --local skips the fetch and branches from local default."""
+        # Given we're on main with no conflicting branches
+        mocker.patch("gx.commands.feat.current_branch", return_value="main")
+        mocker.patch("gx.commands.feat.default_branch", return_value="main")
+        mocker.patch("gx.commands.feat.branch_exists", return_value=False)
+        mock_git = mocker.patch(
+            "gx.commands.feat.git",
+            side_effect=self._make_git_side_effect(),
+        )
+
+        from gx.commands.feat import _create_branch
+
+        # When creating a branch with --local
+        _create_branch(name="login", local=True)
+
+        # Then no fetch was performed and checkout uses the local default ref
+        fetch_calls = [c for c in mock_git.call_args_list if c.args and c.args[0] == "fetch"]
+        assert len(fetch_calls) == 0
+        checkout_calls = [c for c in mock_git.call_args_list if c.args[0] == "checkout"]
+        assert checkout_calls[0].args == ("checkout", "-b", "feat/login", "main")
+
+    @pytest.mark.parametrize(
+        ("ahead_count", "local", "branch_name", "expect_message", "expect_hint"),
+        [
+            pytest.param(
+                3,
+                False,
+                "login",
+                "3 commits not on origin/main",
+                "gx feat --local login",
+                id="ahead_warns_with_hint",
+            ),
+            pytest.param(0, False, None, None, None, id="in_sync_no_warning"),
+            pytest.param(3, True, None, None, None, id="local_flag_skips_warning"),
+        ],
+    )
+    def test_local_ahead_warning(
+        self,
+        mocker,
+        capsys,
+        ahead_count,
+        local,
+        branch_name,
+        expect_message,
+        expect_hint,
+    ):
+        """Verify the local-ahead warning fires only when local default has unpushed commits in default mode."""
+        # Given a configured ahead count and local-flag combination
+        mocker.patch("gx.commands.feat.current_branch", return_value="main")
+        mocker.patch("gx.commands.feat.default_branch", return_value="main")
+        mocker.patch("gx.commands.feat.branch_exists", return_value=False)
+        mocker.patch("gx.commands.feat.ahead_behind", return_value=(ahead_count, 0))
+        mocker.patch(
+            "gx.commands.feat.git",
+            side_effect=self._make_git_side_effect(),
+        )
+
+        from gx.commands.feat import _create_branch
+
+        # When creating a branch
+        _create_branch(name=branch_name, local=local)
+
+        # Then the warning is shown only when ahead and not local
+        captured = capsys.readouterr()
+        if expect_message is None:
+            assert "not on origin" not in captured.err
+        else:
+            assert expect_message in captured.err
+            assert expect_hint in captured.err
+
+    def test_warning_includes_worktree_flag_in_hint(self, mocker, capsys, tmp_path):
+        """Verify the --local hint includes -w when invoked in worktree mode."""
+        # Given local main is ahead and we're invoking worktree mode
+        mocker.patch("gx.commands.feat.current_branch", return_value="main")
+        mocker.patch("gx.commands.feat.default_branch", return_value="main")
+        mocker.patch("gx.commands.feat.branch_exists", return_value=False)
+        mocker.patch("gx.commands.feat._resolve_branch_name", return_value="feat/1")
+        mocker.patch("gx.commands.feat.repo_root", return_value=tmp_path)
+        mocker.patch("gx.commands.feat.ahead_behind", return_value=(2, 0))
+
+        def git_side_effect(*args: str, **kwargs: str) -> GitResult:
+            if args[0] == "check-ignore":
+                return GitResult(command="", returncode=0, stdout=".worktrees", stderr="")
+            return GitResult(command="", returncode=0, stdout="", stderr="")
+
+        mocker.patch("gx.commands.feat.git", side_effect=git_side_effect)
+        mocker.patch(
+            "gx.commands.feat.create_worktree",
+            return_value=GitResult(command="", returncode=0, stdout="", stderr=""),
+        )
+
+        from gx.commands.feat import _create_worktree_branch
+
+        # When creating a worktree branch in default mode
+        _create_worktree_branch(name=None)
+
+        # Then the suggested command preserves the -w flag
+        captured = capsys.readouterr()
+        assert "gx feat -w --local" in captured.err
+
 
 class TestFeatWorktreeMode:
     """Tests for feat command in worktree mode."""
@@ -455,3 +556,37 @@ class TestFeatWorktreeMode:
         ]
         assert len(check_ignore_calls) == 0
         mock_create.assert_called_once()
+
+    def test_uses_local_default_when_local(self, mocker, tmp_path):
+        """Verify worktree mode with --local skips fetch and uses local default ref."""
+        # Given we're on main with no conflicting branches and --local requested
+        mocker.patch("gx.commands.feat.current_branch", return_value="main")
+        mocker.patch("gx.commands.feat.default_branch", return_value="main")
+        mocker.patch("gx.commands.feat.branch_exists", return_value=False)
+        mocker.patch("gx.commands.feat._resolve_branch_name", return_value="feat/1")
+        mocker.patch("gx.commands.feat.repo_root", return_value=tmp_path)
+
+        def git_side_effect(*args: str, **kwargs: str) -> GitResult:
+            if args[0] == "check-ignore":
+                return GitResult(command="", returncode=0, stdout=".worktrees", stderr="")
+            return GitResult(command="", returncode=0, stdout="", stderr="")
+
+        mock_git = mocker.patch("gx.commands.feat.git", side_effect=git_side_effect)
+        mock_create = mocker.patch(
+            "gx.commands.feat.create_worktree",
+            return_value=GitResult(command="", returncode=0, stdout="", stderr=""),
+        )
+
+        from gx.commands.feat import _create_worktree_branch
+
+        # When creating a worktree branch with --local
+        _create_worktree_branch(name=None, local=True)
+
+        # Then no fetch was performed and the worktree starts from local default
+        fetch_calls = [c for c in mock_git.call_args_list if c.args and c.args[0] == "fetch"]
+        assert len(fetch_calls) == 0
+        mock_create.assert_called_once_with(
+            path=tmp_path / ".worktrees" / "feat" / "1",
+            branch="feat/1",
+            start_point="main",
+        )
