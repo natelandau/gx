@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import typer
-from nllog import error
+from nclutils import pp
 
 from gx.lib.git import git
 
@@ -62,7 +62,7 @@ def default_branch() -> str:
         if result.success:
             return candidate
 
-    error("Could not determine default branch.")
+    pp.error("Could not determine default branch.")
     raise typer.Exit(1)
 
 

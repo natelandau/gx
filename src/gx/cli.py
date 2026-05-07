@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import typer
-from nllog import configure
+from nclutils import pp
 from typer import rich_utils
 
 from gx import __version__
@@ -71,7 +71,7 @@ def callback(
 
     Configure defaults in ~/.config/gx/config.toml
     """
-    configure(verbosity=verbose)
+    pp.configure(verbosity=verbose)
     check_git_installed()
     if ctx.invoked_subcommand is None:
         if _is_git_repo():

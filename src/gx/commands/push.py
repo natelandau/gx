@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import typer
-from nllog import configure, error, info, step, success, warning
+from nclutils import pp
 from rich.prompt import Confirm
 
 from gx.lib.branch import current_branch, default_branch, tracking_branch
@@ -68,7 +68,7 @@ def _warn_dirty_tree() -> None:
     if untracked > 0:
         parts.append(f"{untracked} untracked file{'s' if untracked != 1 else ''}")
 
-    warning(f"{' and '.join(parts)} won't be included in this push.")
+    pp.warning(f"{' and '.join(parts)} won't be included in this push.")
 
 
 def _print_summary(
@@ -93,7 +93,7 @@ def _print_summary(
 
     commits = log_result.stdout.splitlines()
     verb = "Would push" if get_dry_run() else "Push"
-    success(
+    pp.success(
         f"{verb} {len(commits)} commit(s) to {remote}/{remote_branch}",
         details=[commit_text(c) for c in commits],
     )
@@ -140,14 +140,14 @@ def push(
       gx push -n           Preview what would be pushed
     """
     if verbose:
-        configure(verbosity=verbose)
+        pp.configure(verbosity=verbose)
     if dry_run:
         set_dry_run(enabled=True)
     check_git_repo()
 
     branch = current_branch()
     if branch is None:
-        error("Cannot push in detached HEAD state.")
+        pp.error("Cannot push in detached HEAD state.")
         raise typer.Exit(1)
 
     _warn_dirty_tree()
@@ -158,7 +158,7 @@ def push(
         and branch == default
         and not Confirm.ask(f"You're about to push directly to {default}. Continue?")
     ):
-        info("Cancelled push")
+        pp.info("Cancelled push")
         raise typer.Exit(0)
 
     remote, remote_branch = _resolve_push_target(branch)
@@ -172,7 +172,7 @@ def push(
     if tags:
         push_args.append("--tags")
 
-    with step(f"Push to {remote}/{remote_branch}"):
+    with pp.step(f"Push to {remote}/{remote_branch}"):
         git(*push_args, timeout=120).raise_on_error()
 
     _print_summary(remote_ref_before, remote, remote_branch, default)

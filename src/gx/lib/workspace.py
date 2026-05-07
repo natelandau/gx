@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import typer
-from nllog import error, step, warning
+from nclutils import pp
 
 from gx.lib.git import git, repo_root
 
@@ -44,7 +44,7 @@ def is_rebase_in_progress() -> bool:
 def rollback(*, stashed: bool) -> None:
     """Unstash if we stashed earlier, then exit."""
     if stashed:
-        warning("Restoring stashed changes...")
+        pp.warning("Restoring stashed changes...")
         git("stash", "pop")
     raise typer.Exit(1)
 
@@ -58,7 +58,7 @@ def stash_if_dirty() -> bool:
     if not is_dirty():
         return False
 
-    with step("Stash local changes"):
+    with pp.step("Stash local changes"):
         git("stash", "--include-untracked").raise_on_error()
     return True
 
@@ -72,10 +72,10 @@ def update_submodules(*, stashed: bool) -> None:
     if not has_submodules():
         return
 
-    with step("Update submodules"):
+    with pp.step("Update submodules"):
         result = git("submodule", "update", "--init", "--recursive")
         if not result.success:
-            error("Failed to update submodules")
+            pp.error("Failed to update submodules")
             rollback(stashed=stashed)
 
 
@@ -91,10 +91,10 @@ def unstash(*, stashed: bool) -> None:
     if not stashed:
         return
 
-    with step("Restore stashed changes"):
+    with pp.step("Restore stashed changes"):
         result = git("stash", "pop")
         if not result.success:
-            warning(
+            pp.warning(
                 "Could not cleanly restore stashed changes",
                 details=[
                     "The git operation succeeded, but stashed changes conflict with the updated code",

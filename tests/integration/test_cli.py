@@ -1,6 +1,6 @@
 """Integration tests for gx CLI."""
 
-from nllog import get_default
+from nclutils import pp
 from typer.testing import CliRunner
 
 from gx import __version__
@@ -18,36 +18,36 @@ class TestVerbosityFlag:
         """Verify no flags results in INFO verbosity."""
         result = runner.invoke(app, ["pull", "-n"])
         assert result.exit_code == 0
-        assert get_default().verbosity.value == 0
+        assert pp.get_default().verbosity.value == 0
 
     def test_single_v_sets_debug(self, tmp_git_repo):
         """Verify -v sets DEBUG verbosity."""
         result = runner.invoke(app, ["-v", "pull", "-n"])
         assert result.exit_code == 0
-        assert get_default().verbosity.value == 1
+        assert pp.get_default().verbosity.value == 1
 
     def test_double_v_sets_trace(self, tmp_git_repo):
         """Verify -vv sets TRACE verbosity."""
         result = runner.invoke(app, ["-vv", "pull", "-n"])
         assert result.exit_code == 0
-        assert get_default().verbosity.value == 2
+        assert pp.get_default().verbosity.value == 2
 
     def test_verbose_long_form(self, tmp_git_repo):
         """Verify --verbose sets DEBUG verbosity."""
         result = runner.invoke(app, ["--verbose", "pull", "-n"])
         assert result.exit_code == 0
-        assert get_default().verbosity.value == 1
+        assert pp.get_default().verbosity.value == 1
 
     def test_v_after_subcommand(self, tmp_git_repo):
         """Verify -v works after the subcommand name."""
         result = runner.invoke(app, ["pull", "-v", "-n"])
         assert result.exit_code == 0
-        assert get_default().verbosity.value == 1
+        assert pp.get_default().verbosity.value == 1
 
     def test_vv_after_subcommand(self, tmp_git_repo):
         """Verify -vv works after the subcommand name."""
         runner.invoke(app, ["pull", "-vv", "-n"])
-        assert get_default().verbosity.value == 2
+        assert pp.get_default().verbosity.value == 2
 
 
 class TestVersionFlag:

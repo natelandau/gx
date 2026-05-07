@@ -68,17 +68,18 @@ src/gx/
 
 ### Console Output
 
-- Output is handled by the external `nllog` package — never call `print()` or instantiate `rich.Console()` directly
-- Import print helpers: `from nllog import step, success, debug, trace, dryrun, info, warning, error`
-    - `step("message")` — context manager: spinner while running, `✓`/`✗` on completion
-        - Use `s.sub("text")` inside `with step(...) as s:` to queue sub-items
-    - `success(msg, details=[...])` — terminal success line with optional sub-items
-    - `debug()` — shown with `-v`
-    - `trace()` — shown with `-vv`
-    - `dryrun()` — always shown, prefixed `[dry-run]`
-    - `warning(msg, details=[...])` / `error(msg, details=[...])` — stderr; pass a list for follow-up lines
-- For tables/panels/direct Rich usage: `from nllog import console; console().print(...)`
-- Verbosity set via `-v`/`-vv` flags on root command, wired through `nllog.configure(verbosity=...)`
+- Output is handled by the external `nclutils` package via its `pp` printer — never call `print()` or instantiate `rich.Console()` directly
+- Import the printer: `from nclutils import pp`
+    - `pp.step("message")` — context manager: spinner while running, `✓`/`✗` on completion
+        - Use `s.sub("text")` inside `with pp.step(...) as s:` to queue sub-items
+    - `pp.success(msg, details=[...])` — terminal success line with optional sub-items
+    - `pp.info(msg)` — informational line
+    - `pp.debug(msg)` — shown with `-v`
+    - `pp.trace(msg)` — shown with `-vv`
+    - `pp.dryrun(msg)` — always shown, prefixed `[dry-run]`
+    - `pp.warning(msg, details=[...])` / `pp.error(msg, details=[...])` — stderr; pass a list for follow-up lines
+- For tables/panels/direct Rich usage: `pp.console().print(...)`
+- Verbosity set via `-v`/`-vv` flags on root command, wired through `pp.configure(verbosity=...)`
 
 ### Git Execution
 

@@ -7,7 +7,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from nllog import warning
+from nclutils import pp
 
 from gx.constants import CONFIG_DIR
 
@@ -42,7 +42,7 @@ def _load_toml() -> dict:
         with config_path.open("rb") as f:
             return tomllib.load(f)
     except tomllib.TOMLDecodeError:
-        warning(f"Invalid TOML in config file {config_path}, using defaults.")
+        pp.warning(f"Invalid TOML in config file {config_path}, using defaults.")
         return {}
 
 
@@ -62,7 +62,7 @@ def _extract_str(table: dict, key: str, config_path: str) -> str | None:
     value = table[key]
     if isinstance(value, str):
         return value
-    warning(f"Config: {config_path} must be a string, got {type(value).__name__}. Skipping.")
+    pp.warning(f"Config: {config_path} must be a string, got {type(value).__name__}. Skipping.")
     return None
 
 
@@ -86,7 +86,7 @@ def _extract_toml_values(data: dict) -> dict:
             if isinstance(protected, list) and all(isinstance(b, str) for b in protected):
                 values["protected_branches"] = frozenset(protected)
             else:
-                warning("Config: branches.protected must be a list of strings. Skipping.")
+                pp.warning("Config: branches.protected must be a list of strings. Skipping.")
 
     worktree = data.get("worktree", {})
     if isinstance(worktree, dict) and (

@@ -7,7 +7,7 @@ operations against the current branch's upstream.
 from __future__ import annotations
 
 import typer
-from nllog import error, step, success
+from nclutils import pp
 
 from gx.lib.branch import current_branch, tracking_branch
 from gx.lib.display import commit_text
@@ -23,12 +23,12 @@ def validate_branch() -> tuple[str, str, str]:
     """
     branch = current_branch()
     if branch is None:
-        error("Cannot sync - HEAD is detached.")
+        pp.error("Cannot sync - HEAD is detached.")
         raise typer.Exit(1)
 
     tracking = tracking_branch()
     if tracking is None:
-        error(f"Branch '{branch}' has no upstream tracking branch configured.")
+        pp.error(f"Branch '{branch}' has no upstream tracking branch configured.")
         raise typer.Exit(1)
 
     remote, remote_branch = tracking
@@ -43,16 +43,16 @@ def fetch_and_rebase(remote: str, remote_branch: str, *, stashed: bool) -> None:
         remote_branch: The remote branch to rebase onto.
         stashed: Whether local changes were stashed, used for rollback.
     """
-    with step(f"Fetch from {remote}"):
+    with pp.step(f"Fetch from {remote}"):
         result = git("fetch", remote)
         if not result.success:
             rollback(stashed=stashed)
 
-    with step(f"Pull with rebase from {remote}/{remote_branch}"):
+    with pp.step(f"Pull with rebase from {remote}/{remote_branch}"):
         result = git("pull", "--rebase", remote, remote_branch)
         if not result.success:
             if is_rebase_in_progress():
-                error(
+                pp.error(
                     "Rebase conflict detected",
                     details=[
                         "1. Fix the conflicts in the affected files",
@@ -62,7 +62,7 @@ def fetch_and_rebase(remote: str, remote_branch: str, *, stashed: bool) -> None:
                     ],
                 )
             else:
-                error(f"Failed to pull from {remote}/{remote_branch}")
+                pp.error(f"Failed to pull from {remote}/{remote_branch}")
             rollback(stashed=stashed)
 
 
@@ -76,15 +76,15 @@ def print_pull_summary(head_before: str, remote: str, remote_branch: str) -> Non
     """
     head_after = git("rev-parse", "HEAD")
     if head_before == head_after.stdout:
-        success("Already up to date")
+        pp.success("Already up to date")
         return
 
     log_result = git("log", "--oneline", f"{head_before}..{head_after.stdout}")
     if log_result.success and log_result.stdout:
         commits = log_result.stdout.splitlines()
-        success(
+        pp.success(
             f"Pull {len(commits)} new commit(s) from {remote}/{remote_branch}",
             details=[commit_text(c) for c in commits],
         )
     else:
-        success("Pull complete")
+        pp.success("Pull complete")
