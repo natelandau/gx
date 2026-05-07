@@ -3,7 +3,7 @@
 import re
 
 import typer
-from nllog import configure, debug, error, step, warning
+from nclutils import pp
 
 from gx.lib.branch import ahead_behind, branch_exists, current_branch, default_branch
 from gx.lib.config import config, resolve_worktree_directory
@@ -78,11 +78,11 @@ def _normalize_name(name: str) -> str:
         or "/" in name
         or not git("check-ref-format", "--branch", f"{config.branch_prefix}/{name}").success
     ):
-        error(f"Cannot normalize into a valid branch name: {original}")
+        pp.error(f"Cannot normalize into a valid branch name: {original}")
         raise typer.Exit(1)
 
     if name != original:
-        debug(f'Normalized "{original}" to "{name}"')
+        pp.debug(f'Normalized "{original}" to "{name}"')
 
     return name
 
@@ -144,7 +144,7 @@ def _maybe_warn_local_ahead(*, default: str, local: bool, name: str | None, work
     cmd = "gx feat -w --local" if worktree else "gx feat --local"
     if name:
         cmd += f" {name}"
-    warning(
+    pp.warning(
         f"Local {default} has {ahead} {commit_word} not on {config.remote_name}/{default}; new branch will not include them.",
         details=[f"Run `{cmd}` to branch from local {default} instead."],
     )
@@ -163,22 +163,22 @@ def _prepare_feat_branch(name: str | None, *, local: bool) -> tuple[str, str, st
     """
     branch = current_branch()
     if branch is None:
-        error("Cannot create feature branch in detached HEAD state.")
+        pp.error("Cannot create feature branch in detached HEAD state.")
         raise typer.Exit(1)
 
     default = default_branch()
 
     if not local:
-        with step(f"Fetch latest {default} from {config.remote_name}"):
+        with pp.step(f"Fetch latest {default} from {config.remote_name}"):
             git("fetch", config.remote_name, default).raise_on_error()
 
     if branch.startswith(f"{config.branch_prefix}/"):
-        warning(f"Currently on {branch}")
+        pp.warning(f"Currently on {branch}")
 
     feat_branch = _resolve_branch_name(name)
 
     if branch_exists(feat_branch):
-        error(f"Branch {feat_branch} already exists.")
+        pp.error(f"Branch {feat_branch} already exists.")
         raise typer.Exit(1)
 
     start_point = _resolve_start_point(default, local=local)
@@ -191,16 +191,16 @@ def _create_branch(name: str | None, *, local: bool = False) -> None:
     feat_branch, start_point, default = _prepare_feat_branch(name, local=local)
     _maybe_warn_local_ahead(default=default, local=local, name=name, worktree=False)
 
-    with step(f"Create branch {feat_branch} from {start_point}"):
+    with pp.step(f"Create branch {feat_branch} from {start_point}"):
         result = git("checkout", "--no-track", "-b", feat_branch, start_point)
         if not result.success:
             if is_dirty():
-                error(
+                pp.error(
                     "Checkout failed due to uncommitted changes that conflict with the target branch",
                     details=["Commit or stash your changes first, then try again"],
                 )
             else:
-                error(result.stderr or f"Failed to create branch {feat_branch}")
+                pp.error(result.stderr or f"Failed to create branch {feat_branch}")
             raise typer.Exit(1)
 
 
@@ -218,7 +218,9 @@ def _create_worktree_branch(name: str | None, *, local: bool = False) -> None:
     if worktree_base.is_relative_to(root):
         check = git("check-ignore", "-q", str(worktree_base))
         if not check.success:
-            error(f"{worktree_base.name}/ is not in .gitignore. Add it before creating worktrees.")
+            pp.error(
+                f"{worktree_base.name}/ is not in .gitignore. Add it before creating worktrees."
+            )
             raise typer.Exit(1)
 
     try:
@@ -226,7 +228,7 @@ def _create_worktree_branch(name: str | None, *, local: bool = False) -> None:
     except ValueError:
         display_path = worktree_path
 
-    with step(f"Create worktree at {display_path}") as s:
+    with pp.step(f"Create worktree at {display_path}") as s:
         create_worktree(
             path=worktree_path, branch=feat_branch, start_point=start_point
         ).raise_on_error()
@@ -268,7 +270,7 @@ def feat(
       gx feat -n           Preview without creating anything
     """
     if verbose:
-        configure(verbosity=verbose)
+        pp.configure(verbosity=verbose)
     if dry_run:
         set_dry_run(enabled=True)
     check_git_repo()

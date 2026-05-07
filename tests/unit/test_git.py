@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 import typer
-from nllog import configure
+from nclutils import pp
 
 from gx.lib.git import (
     GitResult,
@@ -291,20 +291,20 @@ class TestGitFunction:
         # Given dry-run is active
         set_dry_run(enabled=True)
 
-        # Given dryrun() is mocked
-        mock_dryrun = mocker.patch("gx.lib.git.dryrun", autospec=True)
+        # Given pp.dryrun() is mocked
+        mock_dryrun = mocker.patch.object(pp, "dryrun", autospec=True)
 
         # When running a mutating command
         git("push", "origin", "main")
 
-        # Then dryrun() is called with the command string
+        # Then pp.dryrun() is called with the command string
         mock_dryrun.assert_called_once_with("git push origin main")
 
     def test_dry_run_no_doubling_at_debug_verbosity(self, capsys):
         """Verify skipped command is printed exactly once with -v."""
         # Given dry-run is active and verbosity is DEBUG
         set_dry_run(enabled=True)
-        configure(verbosity=1)
+        pp.configure(verbosity=1)
 
         # When running a mutating command
         git("push", "origin", "main")
@@ -316,7 +316,7 @@ class TestGitFunction:
     def test_debug_logs_command(self, mocker, capsys):
         """Verify git() logs command via debug() at verbosity DEBUG."""
         # Given verbosity is DEBUG
-        configure(verbosity=1)
+        pp.configure(verbosity=1)
 
         # Given a mocked subprocess
         mocker.patch(
@@ -337,7 +337,7 @@ class TestGitFunction:
     def test_trace_pipes_stdout(self, mocker, capsys):
         """Verify git() pipes stdout lines through trace() at verbosity TRACE."""
         # Given verbosity is TRACE
-        configure(verbosity=2)
+        pp.configure(verbosity=2)
 
         # Given a mocked subprocess with stdout
         mocker.patch(
@@ -362,7 +362,7 @@ class TestGitFunction:
     def test_trace_pipes_stderr(self, mocker, capsys):
         """Verify git() pipes stderr lines through trace() at verbosity TRACE."""
         # Given verbosity is TRACE
-        configure(verbosity=2)
+        pp.configure(verbosity=2)
 
         # Given a mocked subprocess with stderr
         mocker.patch(

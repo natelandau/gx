@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 import typer
-from nllog import configure, error, step, warning
+from nclutils import pp
 from rich.prompt import Confirm
 
 from gx.lib.branch import ahead_behind, current_branch, default_branch, is_gone, is_merged
@@ -58,10 +58,10 @@ def _checkout_and_pull(target_branch: str) -> None:
     Args:
         target_branch: The branch to check out (typically the default branch).
     """
-    with step(f"Switch to {target_branch}"):
+    with pp.step(f"Switch to {target_branch}"):
         result = git("checkout", target_branch)
         if not result.success:
-            error(f"Failed to checkout {target_branch}: {result.stderr}")
+            pp.error(f"Failed to checkout {target_branch}: {result.stderr}")
             raise typer.Exit(1)
 
     _branch, remote, remote_branch = validate_branch()
@@ -80,10 +80,10 @@ def _delete_branch(branch: str) -> None:
     Args:
         branch: The branch name to delete.
     """
-    with step(f"Delete branch {branch}"):
+    with pp.step(f"Delete branch {branch}"):
         result = git("branch", "-D", branch)
         if not result.success:
-            warning(f"Could not delete branch {branch}: {result.stderr}")
+            pp.warning(f"Could not delete branch {branch}: {result.stderr}")
 
 
 def _verify_merged(branch: str, target: str) -> None:
@@ -109,7 +109,7 @@ def _verify_merged(branch: str, target: str) -> None:
     # fetch lives in this branch because is_gone/is_merged need fresh refs; pr_state
     # doesn't, and a successful gh check would make the fetch wasted work.
     if state is None:
-        with step("Refresh remote refs"):
+        with pp.step("Refresh remote refs"):
             git("fetch", "--prune")
         if is_gone(branch) or is_merged(branch, target):
             return
@@ -123,7 +123,7 @@ def _verify_merged(branch: str, target: str) -> None:
     )
 
     if not Confirm.ask(message, default=False):
-        error("Aborted by user.")
+        pp.error("Aborted by user.")
         raise typer.Exit(1)
 
 
@@ -157,19 +157,19 @@ def done(
       gx done -v           Run with debug output
     """
     if verbose:
-        configure(verbosity=verbose)
+        pp.configure(verbosity=verbose)
     if dry_run:
         set_dry_run(enabled=True)
     check_git_repo()
 
     branch = current_branch()
     if branch is None:
-        error("Cannot run done in detached HEAD state.")
+        pp.error("Cannot run done in detached HEAD state.")
         raise typer.Exit(1)
 
     target = default_branch()
     if branch == target:
-        error(
+        pp.error(
             "Already on the default branch - nothing to do.",
             details=["To clean up merged branches/worktrees, run: gx pull && gx clean"],
         )
@@ -181,7 +181,7 @@ def done(
     # since losing uncommitted changes is a separate class of footgun from deleting a
     # not-yet-merged branch.
     if worktree is not None and is_dirty():
-        error("Worktree has uncommitted changes. Commit or stash before running done.")
+        pp.error("Worktree has uncommitted changes. Commit or stash before running done.")
         raise typer.Exit(1)
 
     if not force:
@@ -189,21 +189,21 @@ def done(
 
     if worktree is not None:
         if main_path is None:
-            error("Could not find main worktree.")
+            pp.error("Could not find main worktree.")
             raise typer.Exit(1)
 
         # Must leave the worktree directory before removing it
         os.chdir(main_path)
 
-        with step(f"Remove worktree {worktree.path}"):
+        with pp.step(f"Remove worktree {worktree.path}"):
             result = remove_worktree(worktree.path)
             if not result.success:
-                error(f"Failed to remove worktree {worktree.path}: {result.stderr}")
+                pp.error(f"Failed to remove worktree {worktree.path}: {result.stderr}")
                 raise typer.Exit(1)
 
         _checkout_and_pull(target)
         _delete_branch(branch)
-        warning(f"Your previous working directory was removed. Run: cd {main_path}")
+        pp.warning(f"Your previous working directory was removed. Run: cd {main_path}")
     else:
         _checkout_and_pull(target)
         _delete_branch(branch)

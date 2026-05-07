@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import typer
-from nllog import configure, step, success, warning
+from nclutils import pp
 from rich.prompt import Confirm
 
 from gx.lib.branch import current_branch
@@ -20,7 +20,7 @@ app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
 
 def _fetch() -> None:
     """Fetch from remote with prune to update tracking refs."""
-    with step("Fetch with prune"):
+    with pp.step("Fetch with prune"):
         git("fetch", "--prune").raise_on_error()
 
 
@@ -43,10 +43,10 @@ def _display_candidates(
         if branch_candidates:
             subs.append("Branches:")
             subs.extend(f"  {c.branch}  ({c.reason})" for c in branch_candidates)
-        success(f"Find {total} stale item{'s' if total != 1 else ''}", details=subs)
+        pp.success(f"Find {total} stale item{'s' if total != 1 else ''}", details=subs)
 
     if skipped:
-        warning(
+        pp.warning(
             "Skipped (dirty worktree, use --force):",
             details=[
                 f"{c.worktree.path}  (branch: {c.branch}, {c.reason})"
@@ -81,12 +81,12 @@ def _remove_candidates(
             if br_result.success:
                 br_removed += 1
             else:
-                warning(
+                pp.warning(
                     f"Worktree removed but failed to delete branch {c.branch}: {br_result.stderr}"
                 )
                 failures += 1
         else:
-            warning(f"Failed to remove worktree {c.worktree.path}: {result.stderr}")
+            pp.warning(f"Failed to remove worktree {c.worktree.path}: {result.stderr}")
             failures += 1
 
     for c in branch_candidates:
@@ -94,7 +94,7 @@ def _remove_candidates(
         if result.success:
             br_removed += 1
         else:
-            warning(f"Failed to delete branch {c.branch}: {result.stderr}")
+            pp.warning(f"Failed to delete branch {c.branch}: {result.stderr}")
             failures += 1
 
     return wt_removed, br_removed, failures
@@ -110,7 +110,7 @@ def _print_removal_summary(wt_removed: int, br_removed: int) -> None:
 
     if parts:
         verb = "Would remove" if get_dry_run() else "Remove"
-        success(f"{verb} {' and '.join(parts)}")
+        pp.success(f"{verb} {' and '.join(parts)}")
 
 
 FORCE_OPTION: bool = typer.Option(
@@ -158,7 +158,7 @@ def clean(
       gx clean -n          Preview what would be removed
     """
     if verbose:
-        configure(verbosity=verbose)
+        pp.configure(verbosity=verbose)
     if dry_run:
         set_dry_run(enabled=True)
     check_git_repo()
@@ -175,7 +175,7 @@ def clean(
         if wt_skipped:
             _display_candidates([], [], wt_skipped)
         else:
-            success("Nothing to clean")
+            pp.success("Nothing to clean")
         return
 
     _display_candidates(wt_candidates, br_candidates, wt_skipped)

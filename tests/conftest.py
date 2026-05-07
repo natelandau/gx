@@ -7,7 +7,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 import pytest
-from nllog import configure
+from nclutils import pp
 
 from gx.lib.git import set_dry_run
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 def _reset_state() -> None:
     """Reset verbosity and dry-run after each test."""
     yield
-    configure(verbosity=0)
+    pp.configure(verbosity=0)
     set_dry_run(enabled=False)
 
 

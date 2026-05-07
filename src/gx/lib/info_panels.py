@@ -152,7 +152,7 @@ def _gh_open_count(resource: str) -> int | None:
     """Fetch the count of open items (PRs or issues) via the gh CLI.
 
     Args:
-        resource: The gh resource type — "pr" or "issue".
+        resource: The gh resource type - "pr" or "issue".
     """
     result = gh(resource, "list", "--state", "open", "--json", "number", "--jq", "length")
     if not result.success:

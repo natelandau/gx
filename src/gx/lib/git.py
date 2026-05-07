@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import typer
-from nllog import debug, dryrun, error, trace
+from nclutils import pp
 
 from gx.constants import READ_ONLY_GIT_COMMANDS, READ_ONLY_GIT_COMPOUND_COMMANDS
 
@@ -51,7 +51,7 @@ class GitResult:
             GitResult: Self, for chaining on success.
         """
         if not self.success:
-            error(self.stderr or f"Command failed: {self.command}")
+            pp.error(self.stderr or f"Command failed: {self.command}")
             raise typer.Exit(1)
         return self
 
@@ -107,10 +107,10 @@ def git(*args: str, timeout: int = 30, cwd: Path | None = None) -> GitResult:
     cmd_str = " ".join(cmd)
 
     if _dry_run and not _is_read_only(args):
-        dryrun(cmd_str)
+        pp.dryrun(cmd_str)
         return GitResult(command=cmd_str, returncode=0, stdout="", stderr="")
 
-    debug(cmd_str)
+    pp.debug(cmd_str)
 
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)  # noqa: S603, PLW1510
 
@@ -119,10 +119,10 @@ def git(*args: str, timeout: int = 30, cwd: Path | None = None) -> GitResult:
 
     if stdout:
         for line in stdout.splitlines():
-            trace(line)
+            pp.trace(line)
     if stderr:
         for line in stderr.splitlines():
-            trace(line)
+            pp.trace(line)
 
     return GitResult(
         command=cmd_str,
@@ -162,7 +162,7 @@ def resolve_remote() -> tuple[str, str]:
 def check_git_installed() -> None:
     """Bail with a friendly error if git is not installed."""
     if not shutil.which("git"):
-        error("git is not installed or not found in PATH.")
+        pp.error("git is not installed or not found in PATH.")
         raise typer.Exit(1)
 
 
@@ -170,5 +170,5 @@ def check_git_repo() -> None:
     """Bail with a friendly error if not inside a git repository."""
     result = git("rev-parse", "--is-inside-work-tree")
     if not result.success:
-        error("Not a git repository.")
+        pp.error("Not a git repository.")
         raise typer.Exit(1)

@@ -263,7 +263,7 @@ name = "git-gx"
 version = "0.7.0"
 source = { editable = "." }
 dependencies = [
-    { name = "nllog" },
+    { name = "nclutils" },
     { name = "rich" },
     { name = "typer" },
 ]
@@ -291,9 +291,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "nllog", specifier = ">=0.3.0" },
+    { name = "nclutils", specifier = ">=3.0.1,<4.0.0" },
     { name = "rich", specifier = ">=15.0.0,<16.0.0" },
-    { name = "typer", specifier = ">=0.25.1,<0.26.0" },
+    { name = "typer", specifier = ">=0.25.1,<1.0.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -412,15 +412,16 @@ wheels = [
 ]
 
 [[package]]
-name = "nllog"
-version = "0.3.0"
+name = "nclutils"
+version = "3.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "questionary" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/82/ae/a8f17d439ee9d46ecf0fc3e25923f4ea4708fb75491ac8c67bb535982ebd/nllog-0.3.0.tar.gz", hash = "sha256:e94b2a7d2074b7f0fc03a18b47c41364378808f036cdf27130017b03c00bdb9a", size = 20219, upload-time = "2026-05-04T20:04:37.443Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/25/ca/b2b7f5b4590770470ab652ba5513a497ec22ca86865f42e0a9e43a3ca328/nclutils-3.0.1.tar.gz", hash = "sha256:37810349a6086d0ecef52d218b9cd07b081a079a1de0bb6ddb9e81d2dd8e0919", size = 38730, upload-time = "2026-05-06T21:29:23.496Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/6e/335336c28a18ef33d6f158e96fc507f12c95051a8a8d59d02c7de2df0992/nllog-0.3.0-py3-none-any.whl", hash = "sha256:8fe5c2e29a56518680b12af2c6f5edd85916e363a24a7431cf6411df444c773a", size = 20162, upload-time = "2026-05-04T20:04:36.525Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/9d/b1b4a6f47a17ef4ce24a7e64f98ba9eb6673230cedef4ee6c03564383cdb/nclutils-3.0.1-py3-none-any.whl", hash = "sha256:ee6d8ad12bb3ee183bda4c4236fbe6102275555c17949021ee135ce078e47e13", size = 45284, upload-time = "2026-05-06T21:29:22.331Z" },
 ]
 
 [[package]]

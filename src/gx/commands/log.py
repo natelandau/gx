@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 import typer
-from nllog import configure, console, error, warning
+from nclutils import pp
 from rich.text import Text
 
 from gx.lib.git import check_git_repo, git, set_dry_run
@@ -105,12 +105,12 @@ def _run_graph_mode(count: int) -> None:
     result.raise_on_error()
 
     if not result.stdout:
-        warning("No commits found.")
+        pp.warning("No commits found.")
         return
 
     for line in result.stdout.splitlines():
         styled = colorize_graph_line(line)
-        console().print(styled)
+        pp.console().print(styled)
 
 
 @app.callback(invoke_without_command=True)
@@ -140,13 +140,13 @@ def log(
       gx log --graph        Show branch graph
     """
     if verbose:
-        configure(verbosity=verbose)
+        pp.configure(verbosity=verbose)
     if dry_run:
         set_dry_run(enabled=True)
     check_git_repo()
 
     if full and graph:
-        error("--full and --graph are mutually exclusive.")
+        pp.error("--full and --graph are mutually exclusive.")
         raise typer.Exit(1)
 
     if graph:
@@ -154,6 +154,6 @@ def log(
     else:
         panel = LogPanel(count=count, title="Log", show_body=full).render()
         if panel:
-            console().print(panel)
+            pp.console().print(panel)
         else:
-            warning("No commits found.")
+            pp.warning("No commits found.")

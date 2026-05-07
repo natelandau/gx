@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import typer
-from nllog import configure
+from nclutils import pp
 
 from gx.lib.git import check_git_repo, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
@@ -43,7 +43,7 @@ def pull(
       gx pull -v           Pull with debug output
     """
     if verbose:
-        configure(verbosity=verbose)
+        pp.configure(verbosity=verbose)
     if dry_run:
         set_dry_run(enabled=True)
     check_git_repo()
