@@ -23,6 +23,44 @@ def _reset_state() -> None:
     set_dry_run(enabled=False)
 
 
+# When pytest runs as a git hook (e.g. pre-commit), git sets GIT_DIR,
+# GIT_INDEX_FILE, GIT_WORK_TREE, etc. on the hook process. They leak into
+# every git subprocess the test launches and make those commands operate
+# on the parent repo's state instead of the per-test tmp repo, e.g.
+# `git worktree add` fails with "fatal: .git/index: ... Not a directory".
+_LEAKY_GIT_ENV_VARS = (
+    "GIT_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_WORK_TREE",
+    "GIT_PREFIX",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_COMMON_DIR",
+    "GIT_NAMESPACE",
+    "GIT_REFLOG_ACTION",
+    "GIT_AUTHOR_DATE",
+    "GIT_COMMITTER_DATE",
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "GIT_EDITOR",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_git_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate git subprocesses from the developer's environment.
+
+    Strips inherited GIT_* state vars and pins the global/system config to
+    /dev/null so the developer's ~/.gitconfig (gpgsign, hooksPath, aliases,
+    pull.rebase, signing keys, templates, etc.) cannot influence tests.
+    """
+    for var in _LEAKY_GIT_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+
+
 @pytest.fixture
 def tmp_git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create an isolated git repo with a local bare remote.

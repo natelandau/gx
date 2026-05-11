@@ -4,7 +4,7 @@
         "Programming Language :: Python :: 3.13",
         "Programming Language :: Python :: 3.14",
     ]
-    dependencies = ["nclutils>=3.0.1, <4.0.0", "rich>=15.0.0, <16.0.0", "typer>=0.25.1, <1.0.0"]
+    dependencies = ["nclutils>=3.2.0,<4.0.0", "rich>=15.0.0, <16.0.0", "typer>=0.25.1, <1.0.0"]
     description = "A CLI that wraps common git commands with sensible defaults, safety guards, and helpful summaries."
     license = { file = "LICENSE" }
     name = "git-gx"
@@ -24,13 +24,13 @@
 
 [dependency-groups]
     dev = [
-        "commitizen>=4.15.0",
-        "coverage>=7.13.5",
+        "commitizen>=4.15.1",
+        "coverage>=7.14.0",
         "duty>=1.9.0",
-        "prek>=0.3.11",
+        "prek>=0.3.13",
         "pytest-clarity>=1.0.1",
         "pytest-cov>=7.1.0",
-        "pytest-devtools>=1.0.0",
+        "pytest-devtools>=1.2.0",
         "pytest-mock>=3.15.1",
         "pytest-repeat>=0.9.4",
         "pytest-sugar>=1.1.1",
@@ -38,8 +38,8 @@
         "pytest>=9.0.3",
         "ruff>=0.15.12",
         "shellcheck-py>=0.11.0.1",
-        "ty>=0.0.34",
-        "typos>=1.46.0",
+        "ty>=0.0.35",
+        "typos>=1.46.1",
         "yamllint>=1.38.0",
     ]
 
