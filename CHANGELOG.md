@@ -1,3 +1,13 @@
+## v0.7.1 (2026-05-12)
+
+### Fix
+
+- support nclutils >= v3.0.0 (#17)
+
+### Refactor
+
+- delegate subprocess and gh wrappers to nclutils (#18)
+
 ## v0.7.0 (2026-05-04)
 
 ### Feat
