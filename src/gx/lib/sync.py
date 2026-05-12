@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import typer
 from nclutils import pp
+from nclutils.git import current_branch, is_rebase_in_progress, tracking_branch
 
-from gx.lib.branch import current_branch, tracking_branch
 from gx.lib.display import commit_text
 from gx.lib.git import git
-from gx.lib.workspace import is_rebase_in_progress, rollback
+from gx.lib.workspace import rollback
 
 
 def validate_branch() -> tuple[str, str, str]:
@@ -45,12 +45,12 @@ def fetch_and_rebase(remote: str, remote_branch: str, *, stashed: bool) -> None:
     """
     with pp.step(f"Fetch from {remote}"):
         result = git("fetch", remote)
-        if not result.success:
+        if not result.ok:
             rollback(stashed=stashed)
 
     with pp.step(f"Pull with rebase from {remote}/{remote_branch}"):
         result = git("pull", "--rebase", remote, remote_branch)
-        if not result.success:
+        if not result.ok:
             if is_rebase_in_progress():
                 pp.error(
                     "Rebase conflict detected",
@@ -80,7 +80,7 @@ def print_pull_summary(head_before: str, remote: str, remote_branch: str) -> Non
         return
 
     log_result = git("log", "--oneline", f"{head_before}..{head_after.stdout}")
-    if log_result.success and log_result.stdout:
+    if log_result.ok and log_result.stdout:
         commits = log_result.stdout.splitlines()
         pp.success(
             f"Pull {len(commits)} new commit(s) from {remote}/{remote_branch}",

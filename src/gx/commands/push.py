@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import typer
 from nclutils import pp
+from nclutils.git import current_branch, tracking_branch
 from rich.prompt import Confirm
 
-from gx.lib.branch import current_branch, default_branch, tracking_branch
+from gx.lib.branch import default_branch
 from gx.lib.config import config
 from gx.lib.display import commit_text
-from gx.lib.git import check_git_repo, get_dry_run, git, set_dry_run
+from gx.lib.git import check_git_repo, get_dry_run, git, raise_on_error, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
@@ -24,7 +25,7 @@ def _count_dirty_files() -> tuple[int, int]:
         (modified, untracked) counts from `git status --porcelain`.
     """
     result = git("status", "--porcelain")
-    if not result.success or not result.stdout:
+    if not result.ok or not result.stdout:
         return (0, 0)
 
     modified = 0
@@ -88,7 +89,7 @@ def _print_summary(
         log_range = f"{default}..HEAD"
 
     log_result = git("log", "--oneline", log_range)
-    if not log_result.success or not log_result.stdout:
+    if not log_result.ok or not log_result.stdout:
         return
 
     commits = log_result.stdout.splitlines()
@@ -164,7 +165,7 @@ def push(
     remote, remote_branch = _resolve_push_target(branch)
 
     remote_ref_result = git("rev-parse", f"{remote}/{remote_branch}")
-    remote_ref_before = remote_ref_result.stdout if remote_ref_result.success else None
+    remote_ref_before = remote_ref_result.stdout if remote_ref_result.ok else None
 
     push_args = ["push", "--set-upstream", remote, remote_branch]
     if force:
@@ -173,6 +174,6 @@ def push(
         push_args.append("--tags")
 
     with pp.step(f"Push to {remote}/{remote_branch}"):
-        git(*push_args, timeout=120).raise_on_error()
+        raise_on_error(git(*push_args, timeout=120))
 
     _print_summary(remote_ref_before, remote, remote_branch, default)

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import typer
 from nclutils import pp
+from nclutils.git import is_git_repo
 from typer import rich_utils
 
 from gx import __version__
 from gx.commands import clean, done, feat, info, log, pull, push, status
-from gx.lib.git import check_git_installed, git
+from gx.lib.git import check_git_installed
+from gx.lib.nclutils_logging import configure_nclutils_logging
 from gx.lib.options import VERBOSE_OPTION
 
 rich_utils.STYLE_HELPTEXT = ""  # ty:ignore[invalid-assignment]
@@ -31,12 +33,6 @@ def _version_callback(value: bool) -> None:  # noqa: FBT001
     if value:
         typer.echo(f"gx {__version__}")
         raise typer.Exit
-
-
-def _is_git_repo() -> bool:
-    """Return True if the current directory is inside a git repository."""
-    result = git("rev-parse", "--is-inside-work-tree")
-    return result.success
 
 
 @app.callback(invoke_without_command=True)
@@ -72,9 +68,10 @@ def callback(
     Configure defaults in ~/.config/gx/config.toml
     """
     pp.configure(verbosity=verbose)
+    configure_nclutils_logging()
     check_git_installed()
     if ctx.invoked_subcommand is None:
-        if _is_git_repo():
+        if is_git_repo():
             info_cmd = getattr(ctx.command, "commands", {}).get("info")
             if info_cmd:
                 ctx.invoke(info_cmd)

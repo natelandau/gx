@@ -210,7 +210,7 @@ class LogPanel:
         """
         fmt = _FULL_FORMAT if self.show_body else _DEFAULT_FORMAT
         result = git("log", "--all", f"-n{self.count}", f"--format={fmt}")
-        if not result.success or not result.stdout:
+        if not result.ok or not result.stdout:
             return None
 
         entries = _parse_entries(result.stdout, has_body=self.show_body)

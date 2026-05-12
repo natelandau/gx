@@ -7,38 +7,16 @@ flows around a potentially-failing git operation.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import typer
 from nclutils import pp
+from nclutils.git import is_dirty
 
-from gx.lib.git import git, repo_root
-
-
-def is_dirty(*, cwd: Path | None = None) -> bool:
-    """Return True if the working tree has uncommitted changes or untracked files.
-
-    Args:
-        cwd: Directory to inspect. Defaults to the process cwd, which is the right
-            choice for top-level commands; pass an explicit path to inspect another
-            worktree (e.g., during cleanup analysis).
-    """
-    result = git("status", "--porcelain", cwd=cwd)
-    return result.success and result.stdout != ""
+from gx.lib.git import git, raise_on_error, repo_root
 
 
 def has_submodules() -> bool:
     """Return True if the repo has a .gitmodules file at its root."""
     return (repo_root() / ".gitmodules").exists()
-
-
-def is_rebase_in_progress() -> bool:
-    """Return True if a rebase is currently in progress."""
-    result = git("rev-parse", "--git-dir")
-    if not result.success:
-        return False
-    git_dir = Path(result.stdout)
-    return (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists()
 
 
 def rollback(*, stashed: bool) -> None:
@@ -59,7 +37,7 @@ def stash_if_dirty() -> bool:
         return False
 
     with pp.step("Stash local changes"):
-        git("stash", "--include-untracked").raise_on_error()
+        raise_on_error(git("stash", "--include-untracked"))
     return True
 
 
@@ -74,7 +52,7 @@ def update_submodules(*, stashed: bool) -> None:
 
     with pp.step("Update submodules"):
         result = git("submodule", "update", "--init", "--recursive")
-        if not result.success:
+        if not result.ok:
             pp.error("Failed to update submodules")
             rollback(stashed=stashed)
 
@@ -93,7 +71,7 @@ def unstash(*, stashed: bool) -> None:
 
     with pp.step("Restore stashed changes"):
         result = git("stash", "pop")
-        if not result.success:
+        if not result.ok:
             pp.warning(
                 "Could not cleanly restore stashed changes",
                 details=[

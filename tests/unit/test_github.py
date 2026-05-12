@@ -1,8 +1,16 @@
-"""Tests for GitHub CLI wrapper."""
+"""Tests for GitHub CLI helpers."""
 
 from __future__ import annotations
 
-from gx.lib.github import gh, gh_available, is_github_remote, pr_state
+from nclutils.git import Remote
+
+from gx.lib.github import gh_available, is_github_remote, pr_state
+from tests.unit.conftest import _completed
+
+
+def _remote(url: str) -> Remote:
+    """Build a Remote record matching nclutils.git.primary_remote output."""
+    return Remote(name="origin", url=url, web_url=None)
 
 
 class TestGhAvailable:
@@ -10,12 +18,12 @@ class TestGhAvailable:
 
     def test_available_when_on_path(self, mocker):
         """Verify returns True when gh is on PATH."""
-        mocker.patch("gx.lib.github.shutil.which", return_value="/usr/bin/gh")
+        mocker.patch("gx.lib.github.which", return_value="/usr/bin/gh")
         assert gh_available() is True
 
     def test_unavailable_when_not_on_path(self, mocker):
         """Verify returns False when gh is not on PATH."""
-        mocker.patch("gx.lib.github.shutil.which", return_value=None)
+        mocker.patch("gx.lib.github.which", return_value=None)
         assert gh_available() is False
 
 
@@ -39,26 +47,6 @@ class TestIsGithubRemote:
         assert is_github_remote("") is False
 
 
-class TestGh:
-    """Tests for the gh() subprocess wrapper."""
-
-    def test_successful_command(self, mocker):
-        """Verify successful gh command returns GhResult with stdout."""
-        mock_proc = mocker.Mock(returncode=0, stdout="output\n", stderr="")
-        mocker.patch("gx.lib.github.subprocess.run", return_value=mock_proc)
-        result = gh("repo", "view")
-        assert result.success is True
-        assert result.stdout == "output"
-
-    def test_failed_command(self, mocker):
-        """Verify failed gh command returns GhResult with error."""
-        mock_proc = mocker.Mock(returncode=1, stdout="", stderr="auth error\n")
-        mocker.patch("gx.lib.github.subprocess.run", return_value=mock_proc)
-        result = gh("repo", "view")
-        assert result.success is False
-        assert result.stderr == "auth error"
-
-
 class TestPrState:
     """Tests for pr_state() helper that queries gh for a branch's PR state."""
 
@@ -66,60 +54,63 @@ class TestPrState:
         """Verify None when gh CLI is not on PATH."""
         # Given gh is not available
         mocker.patch("gx.lib.github.gh_available", autospec=True, return_value=False)
-        mock_resolve = mocker.patch("gx.lib.github.resolve_remote", autospec=True)
-        mock_gh = mocker.patch("gx.lib.github.gh", autospec=True)
+        mock_primary = mocker.patch("gx.lib.github.primary_remote", autospec=True)
+        mock_run = mocker.patch("gx.lib.github.run_command", autospec=True)
 
         # When
         result = pr_state("feature-x")
 
         # Then
         assert result is None
-        mock_resolve.assert_not_called()
-        mock_gh.assert_not_called()
+        mock_primary.assert_not_called()
+        mock_run.assert_not_called()
 
     def test_returns_none_for_non_github_remote(self, mocker):
         """Verify None when the primary remote is not on GitHub."""
         # Given a non-GitHub remote
         mocker.patch("gx.lib.github.gh_available", autospec=True, return_value=True)
         mocker.patch(
-            "gx.lib.github.resolve_remote",
+            "gx.lib.github.primary_remote",
             autospec=True,
-            return_value=("origin", "git@gitlab.com:user/repo.git"),
+            return_value=_remote("git@gitlab.com:user/repo.git"),
         )
-        mock_gh = mocker.patch("gx.lib.github.gh", autospec=True)
+        mock_run = mocker.patch("gx.lib.github.run_command", autospec=True)
 
         # When
         result = pr_state("feature-x")
 
         # Then
         assert result is None
-        mock_gh.assert_not_called()
+        mock_run.assert_not_called()
 
     def test_returns_none_when_no_remote_configured(self, mocker):
         """Verify None when no remote can be resolved."""
         # Given no remote
         mocker.patch("gx.lib.github.gh_available", autospec=True, return_value=True)
-        mocker.patch("gx.lib.github.resolve_remote", autospec=True, return_value=("", ""))
-        mock_gh = mocker.patch("gx.lib.github.gh", autospec=True)
+        mocker.patch("gx.lib.github.primary_remote", autospec=True, return_value=None)
+        mock_run = mocker.patch("gx.lib.github.run_command", autospec=True)
 
         # When
         result = pr_state("feature-x")
 
         # Then
         assert result is None
-        mock_gh.assert_not_called()
+        mock_run.assert_not_called()
 
     def test_returns_none_when_no_pr_found(self, mocker):
         """Verify None when gh reports no PR exists for the branch."""
         # Given gh fails (no PR for branch)
         mocker.patch("gx.lib.github.gh_available", autospec=True, return_value=True)
         mocker.patch(
-            "gx.lib.github.resolve_remote",
+            "gx.lib.github.primary_remote",
             autospec=True,
-            return_value=("origin", "git@github.com:user/repo.git"),
+            return_value=_remote("git@github.com:user/repo.git"),
         )
-        mock_proc = mocker.Mock(returncode=1, stdout="", stderr="no pull requests found")
-        mocker.patch("gx.lib.github.subprocess.run", return_value=mock_proc)
+        mocker.patch(
+            "gx.lib.github.run_command",
+            autospec=True,
+            return_value=_completed(returncode=1, stderr="no pull requests found"),
+        )
 
         # When
         result = pr_state("feature-x")
@@ -132,12 +123,15 @@ class TestPrState:
         # Given gh reports MERGED
         mocker.patch("gx.lib.github.gh_available", autospec=True, return_value=True)
         mocker.patch(
-            "gx.lib.github.resolve_remote",
+            "gx.lib.github.primary_remote",
             autospec=True,
-            return_value=("origin", "https://github.com/user/repo.git"),
+            return_value=_remote("https://github.com/user/repo.git"),
         )
-        mock_proc = mocker.Mock(returncode=0, stdout="MERGED\n", stderr="")
-        mocker.patch("gx.lib.github.subprocess.run", return_value=mock_proc)
+        mocker.patch(
+            "gx.lib.github.run_command",
+            autospec=True,
+            return_value=_completed(returncode=0, stdout="MERGED"),
+        )
 
         # When
         result = pr_state("feature-x")
@@ -150,12 +144,15 @@ class TestPrState:
         # Given gh reports OPEN
         mocker.patch("gx.lib.github.gh_available", autospec=True, return_value=True)
         mocker.patch(
-            "gx.lib.github.resolve_remote",
+            "gx.lib.github.primary_remote",
             autospec=True,
-            return_value=("origin", "git@github.com:user/repo.git"),
+            return_value=_remote("git@github.com:user/repo.git"),
         )
-        mock_proc = mocker.Mock(returncode=0, stdout="OPEN\n", stderr="")
-        mocker.patch("gx.lib.github.subprocess.run", return_value=mock_proc)
+        mocker.patch(
+            "gx.lib.github.run_command",
+            autospec=True,
+            return_value=_completed(returncode=0, stdout="OPEN"),
+        )
 
         # When
         result = pr_state("feature-x")
@@ -168,12 +165,15 @@ class TestPrState:
         # Given gh exits 0 with an unexpected state value
         mocker.patch("gx.lib.github.gh_available", autospec=True, return_value=True)
         mocker.patch(
-            "gx.lib.github.resolve_remote",
+            "gx.lib.github.primary_remote",
             autospec=True,
-            return_value=("origin", "git@github.com:user/repo.git"),
+            return_value=_remote("git@github.com:user/repo.git"),
         )
-        mock_proc = mocker.Mock(returncode=0, stdout="DRAFT\n", stderr="")
-        mocker.patch("gx.lib.github.subprocess.run", return_value=mock_proc)
+        mocker.patch(
+            "gx.lib.github.run_command",
+            autospec=True,
+            return_value=_completed(returncode=0, stdout="DRAFT"),
+        )
 
         # When
         result = pr_state("feature-x")

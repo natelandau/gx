@@ -16,15 +16,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from gx.lib.branch import (
+from nclutils.git import (
     all_local_branches,
-    default_branch,
     gone_branches,
-    has_upstream_branch,
-    is_empty,
+    is_dirty,
+    is_empty_branch,
     merged_branches,
+    tracking_branch,
 )
-from gx.lib.workspace import is_dirty
+
+from gx.lib.branch import default_branch
 from gx.lib.worktree import list_worktrees
 
 if TYPE_CHECKING:
@@ -119,7 +120,7 @@ class StaleAnalyzer:
             if reason is None:
                 continue
 
-            if reason != "gone" and not has_upstream_branch(wt.branch):
+            if reason != "gone" and tracking_branch(wt.branch) is None:
                 continue
 
             candidate = CleanCandidate(branch=wt.branch, reason=reason, worktree=wt)
@@ -153,12 +154,12 @@ class StaleAnalyzer:
                 is_merged=branch in merged,
                 is_empty_branch=branch not in gone
                 and branch not in merged
-                and is_empty(branch, target),
+                and is_empty_branch(branch, target),
             )
             if reason is None:
                 continue
 
-            if reason != "gone" and not has_upstream_branch(branch):
+            if reason != "gone" and tracking_branch(branch) is None:
                 continue
 
             candidates.append(CleanCandidate(branch=branch, reason=reason))

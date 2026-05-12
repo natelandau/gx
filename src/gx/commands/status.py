@@ -6,9 +6,10 @@ from typing import TYPE_CHECKING
 
 import typer
 from nclutils import pp
+from nclutils.git import current_branch
 from rich.panel import Panel
 
-from gx.lib.branch import collect_branch_data, current_branch
+from gx.lib.branch import collect_branch_data
 from gx.lib.display import render_branch_panel
 from gx.lib.git import check_git_repo, git, repo_root
 from gx.lib.status_panel import StatusPanel, _info_text
@@ -96,7 +97,7 @@ def status(
 
     porcelain_output = ""
     result = git("status", "--porcelain")
-    if result.success:
+    if result.ok:
         porcelain_output = result.stdout
 
     file_panel = None

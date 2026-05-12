@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import typer
 from nclutils import pp
+from nclutils.git import current_branch
 from rich.prompt import Confirm
 
-from gx.lib.branch import current_branch
 from gx.lib.config import config
-from gx.lib.git import check_git_repo, get_dry_run, git, set_dry_run
+from gx.lib.git import check_git_repo, get_dry_run, git, raise_on_error, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 from gx.lib.stale_analyzer import CleanCandidate, StaleAnalyzer
 from gx.lib.worktree import remove_worktree
@@ -21,7 +21,7 @@ app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
 def _fetch() -> None:
     """Fetch from remote with prune to update tracking refs."""
     with pp.step("Fetch with prune"):
-        git("fetch", "--prune").raise_on_error()
+        raise_on_error(git("fetch", "--prune"))
 
 
 def _display_candidates(
@@ -75,10 +75,10 @@ def _remove_candidates(
         if c.worktree is None:
             continue
         result = remove_worktree(c.worktree.path, force=force)
-        if result.success:
+        if result.ok:
             wt_removed += 1
             br_result = git("branch", "-D", c.branch)
-            if br_result.success:
+            if br_result.ok:
                 br_removed += 1
             else:
                 pp.warning(
@@ -91,7 +91,7 @@ def _remove_candidates(
 
     for c in branch_candidates:
         result = git("branch", "-D", c.branch)
-        if result.success:
+        if result.ok:
             br_removed += 1
         else:
             pp.warning(f"Failed to delete branch {c.branch}: {result.stderr}")

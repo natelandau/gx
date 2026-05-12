@@ -291,7 +291,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "nclutils", specifier = ">=3.2.0,<4.0.0" },
+    { name = "nclutils", specifier = ">=3.3.1,<4.0.0" },
     { name = "rich", specifier = ">=15.0.0,<16.0.0" },
     { name = "typer", specifier = ">=0.25.1,<1.0.0" },
 ]
@@ -413,15 +413,15 @@ wheels = [
 
 [[package]]
 name = "nclutils"
-version = "3.2.0"
+version = "3.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "questionary" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a6/c0/4ef2045cf53803aa06622f56031a1116025c90d21836be0bfe02ca439252/nclutils-3.2.0.tar.gz", hash = "sha256:e06e5de87f4d315b4a94c3342705d56464ca2c701a4eb7520371fabd1c3d2177", size = 56304, upload-time = "2026-05-11T01:41:08.459Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/70/f44e6ca43f40b248027ccd7c9218cdc147f588a564c16823d60dfa4a6c06/nclutils-3.3.1.tar.gz", hash = "sha256:63a004f3a939a845608109ffc6561699327b1e2168d66aa25b7a2eb8fd35a284", size = 58006, upload-time = "2026-05-12T02:51:11.077Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b0/8d/2ece43d1a55755c46098e5065bb5e245c3bca81786363167f2216870e1c2/nclutils-3.2.0-py3-none-any.whl", hash = "sha256:8103e90374f4cf9fea774185352c5024fed48fdddff67caa87ae3953624eae39", size = 67118, upload-time = "2026-05-11T01:41:07.035Z" },
+    { url = "https://files.pythonhosted.org/packages/80/29/129135c50e0c3904f61f8395ee3ac1c4601e3e1153ddb69c1049c2377d8b/nclutils-3.3.1-py3-none-any.whl", hash = "sha256:0d8560f310cd20ba3752c0db310ba8ecb05ff3bf3839c7581b198bd6e390ee99", size = 69241, upload-time = "2026-05-12T02:51:09.913Z" },
 ]
 
 [[package]]

@@ -2,9 +2,10 @@
 
 import pytest
 import typer
+from nclutils.sh import CompletedCommand
 
-from gx.lib.git import GitResult
 from tests.conftest import checkout_tmp_branch, create_tmp_branch
+from tests.unit.conftest import _completed
 
 
 class TestNextFeatNumber:
@@ -56,8 +57,7 @@ class TestNormalizeName:
         """Patch git to succeed for check-ref-format calls."""
         mocker.patch(
             "gx.commands.feat.git",
-            return_value=GitResult(
-                command="git check-ref-format",
+            return_value=_completed(
                 returncode=0,
                 stdout="",
                 stderr="",
@@ -151,16 +151,16 @@ class TestFeatBranchMode:
     ) -> None:
         """Create a git side_effect function for branch mode tests."""
 
-        def side_effect(*args: str, **kwargs: str) -> GitResult:
+        def side_effect(*args: str, **kwargs: str) -> CompletedCommand:
             if args[0] == "fetch":
-                return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout="", stderr="")
             if args[0] == "branch" and "--list" in args:
-                return GitResult(command="", returncode=0, stdout=existing_branches, stderr="")
+                return _completed(returncode=0, stdout=existing_branches, stderr="")
             if args[0] == "check-ref-format":
-                return GitResult(command="", returncode=0, stdout=args[-1], stderr="")
+                return _completed(returncode=0, stdout=args[-1], stderr="")
             if args[0] == "checkout":
-                return GitResult(command="", returncode=0, stdout="", stderr="")
-            return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout="", stderr="")
+            return _completed(returncode=0, stdout="", stderr="")
 
         return side_effect
 
@@ -219,19 +219,19 @@ class TestFeatBranchMode:
         mocker.patch("gx.commands.feat.default_branch", return_value="main")
         mocker.patch("gx.commands.feat.branch_exists", return_value=False)
 
-        def side_effect(*args: str, **kwargs: str) -> GitResult:
+        def side_effect(*args: str, **kwargs: str) -> CompletedCommand:
             if args[0] == "fetch":
-                return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout="", stderr="")
             if args[0] == "branch" and "--list" in args:
-                return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout="", stderr="")
             if args[0] == "check-ref-format":
-                return GitResult(command="", returncode=0, stdout=args[-1], stderr="")
+                return _completed(returncode=0, stdout=args[-1], stderr="")
             if args[0] == "rev-parse":
                 # Simulate origin/main not existing in this repo
-                return GitResult(command="", returncode=1, stdout="", stderr="")
+                return _completed(returncode=1, stdout="", stderr="")
             if args[0] == "checkout":
-                return GitResult(command="", returncode=0, stdout="", stderr="")
-            return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout="", stderr="")
+            return _completed(returncode=0, stdout="", stderr="")
 
         mock_git = mocker.patch("gx.commands.feat.git", side_effect=side_effect)
 
@@ -301,21 +301,20 @@ class TestFeatBranchMode:
         mocker.patch("gx.commands.feat.branch_exists", return_value=False)
         mocker.patch("gx.commands.feat.is_dirty", autospec=True, return_value=True)
 
-        def side_effect(*args: str, **kwargs: str) -> GitResult:
+        def side_effect(*args: str, **kwargs: str) -> CompletedCommand:
             if args[0] == "fetch":
-                return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout="", stderr="")
             if args[0] == "branch" and "--list" in args:
-                return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout="", stderr="")
             if args[0] == "check-ref-format":
-                return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout="", stderr="")
             if args[0] == "checkout":
-                return GitResult(
-                    command="git checkout -b feat/1 main",
+                return _completed(
                     returncode=1,
                     stdout="",
                     stderr="error: checkout failed",
                 )
-            return GitResult(command="", returncode=0, stdout="", stderr="")
+            return _completed(returncode=0, stdout="", stderr="")
 
         mocker.patch("gx.commands.feat.git", side_effect=side_effect)
 
@@ -409,15 +408,15 @@ class TestFeatBranchMode:
         mocker.patch("gx.commands.feat.repo_root", return_value=tmp_path)
         mocker.patch("gx.commands.feat.ahead_behind", return_value=(2, 0))
 
-        def git_side_effect(*args: str, **kwargs: str) -> GitResult:
+        def git_side_effect(*args: str, **kwargs: str) -> CompletedCommand:
             if args[0] == "check-ignore":
-                return GitResult(command="", returncode=0, stdout=".worktrees", stderr="")
-            return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout=".worktrees", stderr="")
+            return _completed(returncode=0, stdout="", stderr="")
 
         mocker.patch("gx.commands.feat.git", side_effect=git_side_effect)
         mocker.patch(
             "gx.commands.feat.create_worktree",
-            return_value=GitResult(command="", returncode=0, stdout="", stderr=""),
+            return_value=_completed(returncode=0, stdout="", stderr=""),
         )
 
         from gx.commands.feat import _create_worktree_branch
@@ -442,20 +441,18 @@ class TestFeatWorktreeMode:
         mocker.patch("gx.commands.feat._resolve_branch_name", return_value="feat/1")
         mocker.patch("gx.commands.feat.repo_root", return_value=tmp_path)
 
-        def git_side_effect(*args: str, **kwargs: str) -> GitResult:
+        def git_side_effect(*args: str, **kwargs: str) -> CompletedCommand:
             if args[0] == "fetch":
-                return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout="", stderr="")
             if args[0] == "check-ignore":
-                return GitResult(command="", returncode=0, stdout=".worktrees", stderr="")
-            return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout=".worktrees", stderr="")
+            return _completed(returncode=0, stdout="", stderr="")
 
         mocker.patch("gx.commands.feat.git", side_effect=git_side_effect)
 
         mock_create = mocker.patch(
             "gx.commands.feat.create_worktree",
-            return_value=GitResult(
-                command="", returncode=0, stdout="Preparing worktree", stderr=""
-            ),
+            return_value=_completed(returncode=0, stdout="Preparing worktree", stderr=""),
         )
 
         from gx.commands.feat import _create_worktree_branch
@@ -490,12 +487,12 @@ class TestFeatWorktreeMode:
         mocker.patch("gx.commands.feat._resolve_branch_name", return_value="feat/1")
         mocker.patch("gx.commands.feat.repo_root", return_value=tmp_path)
 
-        def git_side_effect(*args: str, **kwargs: str) -> GitResult:
+        def git_side_effect(*args: str, **kwargs: str) -> CompletedCommand:
             if args[0] == "fetch":
-                return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout="", stderr="")
             if args[0] == "check-ignore":
-                return GitResult(command="", returncode=1, stdout="", stderr="")
-            return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=1, stdout="", stderr="")
+            return _completed(returncode=0, stdout="", stderr="")
 
         mocker.patch("gx.commands.feat.git", side_effect=git_side_effect)
 
@@ -514,7 +511,7 @@ class TestFeatWorktreeMode:
         mocker.patch("gx.commands.feat._resolve_branch_name", return_value="feat/1")
         mocker.patch(
             "gx.commands.feat.git",
-            return_value=GitResult(command="", returncode=0, stdout="", stderr=""),
+            return_value=_completed(returncode=0, stdout="", stderr=""),
         )
 
         from gx.commands.feat import _create_worktree_branch
@@ -544,11 +541,11 @@ class TestFeatWorktreeMode:
         mocker.patch("gx.commands.feat.repo_root", return_value=tmp_path)
 
         mock_git = mocker.patch("gx.commands.feat.git")
-        mock_git.return_value = GitResult(command="", returncode=0, stdout="", stderr="")
+        mock_git.return_value = _completed(returncode=0, stdout="", stderr="")
 
         mock_create = mocker.patch(
             "gx.commands.feat.create_worktree",
-            return_value=GitResult(command="", returncode=0, stdout="", stderr=""),
+            return_value=_completed(returncode=0, stdout="", stderr=""),
         )
 
         from gx.commands.feat import _create_worktree_branch
@@ -572,15 +569,15 @@ class TestFeatWorktreeMode:
         mocker.patch("gx.commands.feat._resolve_branch_name", return_value="feat/1")
         mocker.patch("gx.commands.feat.repo_root", return_value=tmp_path)
 
-        def git_side_effect(*args: str, **kwargs: str) -> GitResult:
+        def git_side_effect(*args: str, **kwargs: str) -> CompletedCommand:
             if args[0] == "check-ignore":
-                return GitResult(command="", returncode=0, stdout=".worktrees", stderr="")
-            return GitResult(command="", returncode=0, stdout="", stderr="")
+                return _completed(returncode=0, stdout=".worktrees", stderr="")
+            return _completed(returncode=0, stdout="", stderr="")
 
         mock_git = mocker.patch("gx.commands.feat.git", side_effect=git_side_effect)
         mock_create = mocker.patch(
             "gx.commands.feat.create_worktree",
-            return_value=GitResult(command="", returncode=0, stdout="", stderr=""),
+            return_value=_completed(returncode=0, stdout="", stderr=""),
         )
 
         from gx.commands.feat import _create_worktree_branch

@@ -3,18 +3,35 @@
 from __future__ import annotations
 
 import pytest
-
-from gx.lib.git import GitResult
-
-
-def _ok(stdout: str = "", command: str = "git test") -> GitResult:
-    """Build a successful GitResult."""
-    return GitResult(command=command, returncode=0, stdout=stdout, stderr="")
+from nclutils.sh import CompletedCommand
 
 
-def _fail(stderr: str = "error", command: str = "git test") -> GitResult:
-    """Build a failed GitResult."""
-    return GitResult(command=command, returncode=1, stdout="", stderr=stderr)
+def _completed(
+    *,
+    argv: tuple[str, ...] = ("git",),
+    returncode: int = 0,
+    stdout: str = "",
+    stderr: str = "",
+) -> CompletedCommand:
+    """Build a CompletedCommand result for mocking run_command or git()."""
+    return CompletedCommand(
+        argv=argv,
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        duration=0.0,
+        cwd=None,
+    )
+
+
+def _ok(stdout: str = "") -> CompletedCommand:
+    """Build a successful CompletedCommand."""
+    return _completed(returncode=0, stdout=stdout)
+
+
+def _fail(stderr: str = "error") -> CompletedCommand:
+    """Build a failed CompletedCommand."""
+    return _completed(returncode=1, stderr=stderr)
 
 
 @pytest.fixture

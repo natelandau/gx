@@ -6,12 +6,13 @@ from typing import TYPE_CHECKING
 
 import typer
 from nclutils import pp
+from nclutils.git import primary_remote, stash_counts
 from rich.console import Group
 from rich.table import Table
 
-from gx.lib.branch import collect_branch_data, count_file_statuses, stash_counts
+from gx.lib.branch import collect_branch_data, count_file_statuses
 from gx.lib.display import render_branch_panel, render_working_tree_panel
-from gx.lib.git import check_git_repo, git, repo_root, resolve_remote
+from gx.lib.git import check_git_repo, git, repo_root
 from gx.lib.info_panels import GitHubPanel, RepoPanel, StashPanel, WorktreePanel
 from gx.lib.log_panel import LogPanel
 
@@ -95,14 +96,14 @@ def info(
     check_git_repo()
 
     root = repo_root()
-    remote_name, remote_url = resolve_remote()
+    remote = primary_remote()
 
-    repo_p = RepoPanel(root, remote_name, remote_url).render()
-    github_p = GitHubPanel(remote_url).render()
+    repo_p = RepoPanel(root, remote).render()
+    github_p = GitHubPanel(remote).render()
 
     stash_data = stash_counts()
     porcelain_result = git("status", "--porcelain")
-    porcelain = porcelain_result.stdout if porcelain_result.success else ""
+    porcelain = porcelain_result.stdout if porcelain_result.ok else ""
     staged, modified, unmerged, untracked = count_file_statuses(porcelain)
 
     branch_rows = collect_branch_data(

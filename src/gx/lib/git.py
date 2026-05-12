@@ -1,13 +1,14 @@
-"""Git subprocess wrapper for executing git commands.
+"""Run git commands with dry-run and verbosity-aware streaming.
 
-Provides a shared git() function that wraps subprocess.run with result objects,
-dry-run support for mutating commands, and verbosity-aware output piping.
+Provides the shared ``git()`` invocation and the ``raise_on_error()`` helper that
+gx commands use instead of calling ``subprocess`` or ``run_command`` directly.
 
-Usage in commands:
-    from gx.lib.git import git, check_git_repo
-
+Usage:
     check_git_repo()
-    result = git("push", "origin", "main").raise_on_error()
+    raise_on_error(git("push", "origin", "main"))
+
+    # git diff --quiet returns 1 specifically to signal "changes present" -- not an
+    # error, so inspect the returncode rather than checking .ok.
     result = git("diff", "--quiet")
     if result.returncode == 1:
         info("Working tree has changes")
@@ -15,46 +16,15 @@ Usage in commands:
 
 from __future__ import annotations
 
-import shutil
-import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 
 import typer
 from nclutils import pp
+from nclutils.git import is_git_installed, is_git_repo
+from nclutils.pp.constants import Verbosity
+from nclutils.sh import CompletedCommand, run_command
 
 from gx.constants import READ_ONLY_GIT_COMMANDS, READ_ONLY_GIT_COMPOUND_COMMANDS
-
-
-@dataclass(frozen=True)
-class GitResult:
-    """Result of a git command execution.
-
-    Use raise_on_error() to bail on failure, or inspect returncode/stdout/stderr directly
-    for commands where non-zero exit codes carry meaning (e.g., git diff --quiet).
-    """
-
-    command: str
-    returncode: int
-    stdout: str
-    stderr: str
-
-    @property
-    def success(self) -> bool:
-        """Return True if the command exited with code 0."""
-        return self.returncode == 0
-
-    def raise_on_error(self) -> GitResult:
-        """Print stderr and exit if the command failed.
-
-        Returns:
-            GitResult: Self, for chaining on success.
-        """
-        if not self.success:
-            pp.error(self.stderr or f"Command failed: {self.command}")
-            raise typer.Exit(1)
-        return self
-
 
 _dry_run: bool = False
 
@@ -91,45 +61,50 @@ def _is_read_only(args: tuple[str, ...]) -> bool:
     return False
 
 
-def git(*args: str, timeout: int = 30, cwd: Path | None = None) -> GitResult:
-    """Execute a git command and return a GitResult.
+def git(*args: str, timeout: int = 30, cwd: Path | None = None) -> CompletedCommand:
+    """Execute a git command and return the nclutils :class:`CompletedCommand`.
 
-    Route command logging through debug() (visible with -v) and pipe command output
-    through trace() (visible with -vv). In dry-run mode, mutating commands are skipped
-    and a synthetic success result is returned.
+    With -vv, stream output to the terminal as it arrives instead of buffering.
+    In dry-run mode, mutating commands are skipped and a synthetic success result
+    is returned; read-only commands always execute.
 
     Args:
         *args: Git subcommand and arguments (e.g., "push", "origin", "main").
         timeout: Seconds before the command is killed. Defaults to 30.
         cwd: Working directory for the command. Defaults to None (uses process cwd).
     """
-    cmd = ["git", *args]
-    cmd_str = " ".join(cmd)
+    argv = ("git", *args)
 
     if _dry_run and not _is_read_only(args):
-        pp.dryrun(cmd_str)
-        return GitResult(command=cmd_str, returncode=0, stdout="", stderr="")
+        pp.dryrun(" ".join(argv))
+        return CompletedCommand(
+            argv=argv, returncode=0, stdout="", stderr="", duration=0.0, cwd=cwd
+        )
 
-    pp.debug(cmd_str)
+    stream = pp.get_default().verbosity >= Verbosity.TRACE
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)  # noqa: S603, PLW1510
-
-    stdout = proc.stdout.strip("\n")
-    stderr = proc.stderr.strip("\n")
-
-    if stdout:
-        for line in stdout.splitlines():
-            pp.trace(line)
-    if stderr:
-        for line in stderr.splitlines():
-            pp.trace(line)
-
-    return GitResult(
-        command=cmd_str,
-        returncode=proc.returncode,
-        stdout=stdout,
-        stderr=stderr,
+    return run_command(
+        list(argv),
+        timeout=timeout,
+        cwd=cwd,
+        check=False,
+        stream=stream,
     )
+
+
+def raise_on_error(result: CompletedCommand) -> CompletedCommand:
+    """Print stderr and exit if a CompletedCommand failed; otherwise return it.
+
+    Use to bail on a single command without writing a manual if/error/exit at every
+    call site. Returns the passed-in result so it can be chained.
+
+    Raises:
+        typer.Exit: When ``result.ok`` is False.
+    """
+    if not result.ok:
+        pp.error(result.stderr or f"Command failed: {result.command_line}")
+        raise typer.Exit(1)
+    return result
 
 
 def repo_root() -> Path:
@@ -138,37 +113,19 @@ def repo_root() -> Path:
     Raises:
         typer.Exit: If not inside a git repository.
     """
-    result = git("rev-parse", "--show-toplevel")
-    result.raise_on_error()
+    result = raise_on_error(git("rev-parse", "--show-toplevel"))
     return Path(result.stdout)
-
-
-def resolve_remote() -> tuple[str, str]:
-    """Resolve the primary remote name and its URL.
-
-    Returns:
-        A (remote_name, remote_url) tuple. Values are empty strings on failure.
-    """
-    name_result = git("remote")
-    if not name_result.success or not name_result.stdout:
-        return ("", "")
-
-    name = name_result.stdout.splitlines()[0]
-    url_result = git("remote", "get-url", name)
-    url = url_result.stdout.strip() if url_result.success and url_result.stdout else ""
-    return (name, url)
 
 
 def check_git_installed() -> None:
     """Bail with a friendly error if git is not installed."""
-    if not shutil.which("git"):
+    if not is_git_installed():
         pp.error("git is not installed or not found in PATH.")
         raise typer.Exit(1)
 
 
 def check_git_repo() -> None:
     """Bail with a friendly error if not inside a git repository."""
-    result = git("rev-parse", "--is-inside-work-tree")
-    if not result.success:
+    if not is_git_repo():
         pp.error("Not a git repository.")
         raise typer.Exit(1)

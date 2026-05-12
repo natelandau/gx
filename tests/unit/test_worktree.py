@@ -2,12 +2,12 @@
 
 from pathlib import Path
 
-from gx.lib.git import GitResult
 from tests.conftest import (
     create_tmp_commit,
     create_tmp_worktree,
     merge_tmp_branch,
 )
+from tests.unit.conftest import _completed
 
 
 class TestListWorktrees:
@@ -49,8 +49,7 @@ class TestListWorktrees:
         """Verify list_worktrees() returns empty list when git command fails."""
         mocker.patch(
             "gx.lib.worktree.git",
-            return_value=GitResult(
-                command="git worktree list --porcelain",
+            return_value=_completed(
                 returncode=1,
                 stdout="",
                 stderr="error",
@@ -68,8 +67,7 @@ class TestCreateWorktree:
         """Verify create_worktree() calls git worktree add with -b flag."""
         mock_git = mocker.patch(
             "gx.lib.worktree.git",
-            return_value=GitResult(
-                command="git worktree add .worktrees/feat -b feat",
+            return_value=_completed(
                 returncode=0,
                 stdout="Preparing worktree",
                 stderr="",
@@ -78,7 +76,7 @@ class TestCreateWorktree:
         from gx.lib.worktree import create_worktree
 
         result = create_worktree(Path(".worktrees/feat"), "feat")
-        assert result.success is True
+        assert result.ok is True
         mock_git.assert_called_once_with(
             "worktree", "add", "--no-track", "-b", "feat", ".worktrees/feat"
         )
@@ -87,8 +85,7 @@ class TestCreateWorktree:
         """Verify create_worktree() returns failure result on error."""
         mocker.patch(
             "gx.lib.worktree.git",
-            return_value=GitResult(
-                command="git worktree add .worktrees/feat -b feat",
+            return_value=_completed(
                 returncode=128,
                 stdout="",
                 stderr="fatal: branch already exists",
@@ -97,14 +94,13 @@ class TestCreateWorktree:
         from gx.lib.worktree import create_worktree
 
         result = create_worktree(Path(".worktrees/feat"), "feat")
-        assert result.success is False
+        assert result.ok is False
 
     def test_creates_worktree_with_start_point(self, mocker):
         """Verify create_worktree() passes start_point to git worktree add."""
         mock_git = mocker.patch(
             "gx.lib.worktree.git",
-            return_value=GitResult(
-                command="git worktree add .worktrees/feat/1 -b feat/1 main",
+            return_value=_completed(
                 returncode=0,
                 stdout="Preparing worktree",
                 stderr="",
@@ -113,7 +109,7 @@ class TestCreateWorktree:
         from gx.lib.worktree import create_worktree
 
         result = create_worktree(Path(".worktrees/feat/1"), "feat/1", start_point="main")
-        assert result.success is True
+        assert result.ok is True
         mock_git.assert_called_once_with(
             "worktree", "add", "--no-track", "-b", "feat/1", ".worktrees/feat/1", "main"
         )
@@ -126,8 +122,7 @@ class TestRemoveWorktree:
         """Verify remove_worktree() calls git worktree remove."""
         mock_git = mocker.patch(
             "gx.lib.worktree.git",
-            return_value=GitResult(
-                command="git worktree remove .worktrees/feat",
+            return_value=_completed(
                 returncode=0,
                 stdout="",
                 stderr="",
@@ -136,15 +131,14 @@ class TestRemoveWorktree:
         from gx.lib.worktree import remove_worktree
 
         result = remove_worktree(Path(".worktrees/feat"))
-        assert result.success is True
+        assert result.ok is True
         mock_git.assert_called_once_with("worktree", "remove", ".worktrees/feat")
 
     def test_returns_failure_on_error(self, mocker):
         """Verify remove_worktree() returns failure result on error."""
         mocker.patch(
             "gx.lib.worktree.git",
-            return_value=GitResult(
-                command="git worktree remove .worktrees/feat",
+            return_value=_completed(
                 returncode=1,
                 stdout="",
                 stderr="fatal: not a worktree",
@@ -153,14 +147,13 @@ class TestRemoveWorktree:
         from gx.lib.worktree import remove_worktree
 
         result = remove_worktree(Path(".worktrees/feat"))
-        assert result.success is False
+        assert result.ok is False
 
     def test_force_removes_dirty_worktree(self, mocker):
         """Verify remove_worktree() passes --force when force=True."""
         mock_git = mocker.patch(
             "gx.lib.worktree.git",
-            return_value=GitResult(
-                command="git worktree remove --force .worktrees/feat",
+            return_value=_completed(
                 returncode=0,
                 stdout="",
                 stderr="",
@@ -169,5 +162,5 @@ class TestRemoveWorktree:
         from gx.lib.worktree import remove_worktree
 
         result = remove_worktree(Path(".worktrees/feat"), force=True)
-        assert result.success is True
+        assert result.ok is True
         mock_git.assert_called_once_with("worktree", "remove", "--force", ".worktrees/feat")

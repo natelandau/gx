@@ -4,12 +4,13 @@ import re
 
 import typer
 from nclutils import pp
+from nclutils.git import ahead_behind, branch_exists, current_branch, is_dirty
+from nclutils.sh import ShellCommandError
 
-from gx.lib.branch import ahead_behind, branch_exists, current_branch, default_branch
+from gx.lib.branch import default_branch
 from gx.lib.config import config, resolve_worktree_directory
-from gx.lib.git import check_git_repo, git, repo_root, set_dry_run
+from gx.lib.git import check_git_repo, git, raise_on_error, repo_root, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
-from gx.lib.workspace import is_dirty
 from gx.lib.worktree import create_worktree
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
@@ -44,7 +45,7 @@ def _next_feat_number() -> int:
     """
     prefix = config.branch_prefix
     result = git("branch", "--list", f"{prefix}/*")
-    if not result.success or not result.stdout:
+    if not result.ok or not result.stdout:
         return 1
 
     existing: set[int] = set()
@@ -76,7 +77,7 @@ def _normalize_name(name: str) -> str:
     if (
         not name
         or "/" in name
-        or not git("check-ref-format", "--branch", f"{config.branch_prefix}/{name}").success
+        or not git("check-ref-format", "--branch", f"{config.branch_prefix}/{name}").ok
     ):
         pp.error(f"Cannot normalize into a valid branch name: {original}")
         raise typer.Exit(1)
@@ -108,7 +109,7 @@ def _resolve_start_point(default: str, *, local: bool) -> str:
     """
     if not local:
         remote_ref = f"{config.remote_name}/{default}"
-        if git("rev-parse", "--verify", "--quiet", remote_ref).success:
+        if git("rev-parse", "--verify", "--quiet", remote_ref).ok:
             return remote_ref
     return default
 
@@ -119,11 +120,13 @@ def _local_default_ahead_of_remote(default: str) -> int:
     Used to detect the case where the user has unpushed commits on their
     local default branch that the new feature branch will not include
     because we branch from the freshly fetched remote tip. Returns 0 when
-    the comparison fails - ahead_behind() already returns None on missing
-    refs or rev-list failure, so no separate existence pre-check is needed.
+    the remote ref is missing or rev-list otherwise fails.
     """
-    counts = ahead_behind(default, f"{config.remote_name}/{default}")
-    return counts[0] if counts else 0
+    try:
+        ahead, _ = ahead_behind(default, f"{config.remote_name}/{default}")
+    except ShellCommandError:
+        return 0
+    return ahead
 
 
 def _maybe_warn_local_ahead(*, default: str, local: bool, name: str | None, worktree: bool) -> None:
@@ -170,7 +173,7 @@ def _prepare_feat_branch(name: str | None, *, local: bool) -> tuple[str, str, st
 
     if not local:
         with pp.step(f"Fetch latest {default} from {config.remote_name}"):
-            git("fetch", config.remote_name, default).raise_on_error()
+            raise_on_error(git("fetch", config.remote_name, default))
 
     if branch.startswith(f"{config.branch_prefix}/"):
         pp.warning(f"Currently on {branch}")
@@ -193,7 +196,7 @@ def _create_branch(name: str | None, *, local: bool = False) -> None:
 
     with pp.step(f"Create branch {feat_branch} from {start_point}"):
         result = git("checkout", "--no-track", "-b", feat_branch, start_point)
-        if not result.success:
+        if not result.ok:
             if is_dirty():
                 pp.error(
                     "Checkout failed due to uncommitted changes that conflict with the target branch",
@@ -217,7 +220,7 @@ def _create_worktree_branch(name: str | None, *, local: bool = False) -> None:
     # Only check gitignore for in-repo (relative) worktree directories
     if worktree_base.is_relative_to(root):
         check = git("check-ignore", "-q", str(worktree_base))
-        if not check.success:
+        if not check.ok:
             pp.error(
                 f"{worktree_base.name}/ is not in .gitignore. Add it before creating worktrees."
             )
@@ -229,9 +232,9 @@ def _create_worktree_branch(name: str | None, *, local: bool = False) -> None:
         display_path = worktree_path
 
     with pp.step(f"Create worktree at {display_path}") as s:
-        create_worktree(
-            path=worktree_path, branch=feat_branch, start_point=start_point
-        ).raise_on_error()
+        raise_on_error(
+            create_worktree(path=worktree_path, branch=feat_branch, start_point=start_point)
+        )
         s.sub(f"Branch {feat_branch} from {start_point}")
 
 
