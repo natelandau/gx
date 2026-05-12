@@ -105,8 +105,10 @@ def _patch_verification(
     Override per-test for the specific verification path under test.
     """
     mocker.patch("gx.commands.done.pr_state", autospec=True, return_value=state)
-    mocker.patch("gx.commands.done.is_gone", autospec=True, return_value=is_gone_value)
-    mocker.patch("gx.commands.done.is_merged", autospec=True, return_value=is_merged_value)
+    gone_set = frozenset({"feature-x"}) if is_gone_value else frozenset()
+    merged_set = frozenset({"feature-x"}) if is_merged_value else frozenset()
+    mocker.patch("gx.commands.done.gone_branches", autospec=True, return_value=gone_set)
+    mocker.patch("gx.commands.done.merged_branches", autospec=True, return_value=merged_set)
     return mocker.patch("gx.commands.done.Confirm.ask", autospec=True, return_value=confirm)
 
 
@@ -351,8 +353,8 @@ class TestDoneVerification:
         # Given
         self._common_mocks(mocker)
         mock_pr_state = mocker.patch("gx.commands.done.pr_state", autospec=True)
-        mock_is_gone = mocker.patch("gx.commands.done.is_gone", autospec=True)
-        mock_is_merged = mocker.patch("gx.commands.done.is_merged", autospec=True)
+        mock_gone = mocker.patch("gx.commands.done.gone_branches", autospec=True)
+        mock_merged = mocker.patch("gx.commands.done.merged_branches", autospec=True)
         mock_confirm = mocker.patch("gx.commands.done.Confirm.ask", autospec=True)
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
         mock_git.side_effect = _delete_calls()
@@ -363,8 +365,8 @@ class TestDoneVerification:
 
         # Then — none of the verification helpers were consulted
         mock_pr_state.assert_not_called()
-        mock_is_gone.assert_not_called()
-        mock_is_merged.assert_not_called()
+        mock_gone.assert_not_called()
+        mock_merged.assert_not_called()
         mock_confirm.assert_not_called()
         calls = [c.args for c in mock_git.call_args_list]
         assert ("fetch", "--prune") not in calls

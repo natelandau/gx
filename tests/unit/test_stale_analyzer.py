@@ -160,7 +160,7 @@ class TestStaleWorktrees:
             ],
         )
         mocker.patch("gx.lib.stale_analyzer.is_dirty", return_value=True)
-        mocker.patch("gx.lib.stale_analyzer.has_upstream_branch", return_value=True)
+        mocker.patch("gx.lib.stale_analyzer.tracking_branch", return_value=("origin", "x"))
         mocker.patch("gx.lib.stale_analyzer.default_branch", return_value="main")
         mocker.patch("gx.lib.stale_analyzer.merged_branches", return_value=frozenset())
         mocker.patch("gx.lib.stale_analyzer.gone_branches", return_value=frozenset())
@@ -186,7 +186,7 @@ class TestStaleWorktrees:
             ],
         )
         mocker.patch("gx.lib.stale_analyzer.is_dirty", return_value=True)
-        mocker.patch("gx.lib.stale_analyzer.has_upstream_branch", return_value=True)
+        mocker.patch("gx.lib.stale_analyzer.tracking_branch", return_value=("origin", "x"))
         mocker.patch("gx.lib.stale_analyzer.default_branch", return_value="main")
         mocker.patch("gx.lib.stale_analyzer.merged_branches", return_value=frozenset())
         mocker.patch("gx.lib.stale_analyzer.gone_branches", return_value=frozenset())
@@ -210,7 +210,7 @@ class TestStaleWorktrees:
                 _worktree(is_merged=True),
             ],
         )
-        mocker.patch("gx.lib.stale_analyzer.has_upstream_branch", return_value=False)
+        mocker.patch("gx.lib.stale_analyzer.tracking_branch", return_value=None)
         mocker.patch("gx.lib.stale_analyzer.default_branch", return_value="main")
         mocker.patch("gx.lib.stale_analyzer.merged_branches", return_value=frozenset())
         mocker.patch("gx.lib.stale_analyzer.gone_branches", return_value=frozenset())
@@ -261,7 +261,7 @@ class TestStaleBranches:
         mocker.patch(
             "gx.lib.stale_analyzer.merged_branches", return_value=frozenset({"main", "feat/2"})
         )
-        mocker.patch("gx.lib.stale_analyzer.has_upstream_branch", return_value=True)
+        mocker.patch("gx.lib.stale_analyzer.tracking_branch", return_value=("origin", "x"))
 
         # When
         analyzer = StaleAnalyzer(protected=config.protected_branches)
@@ -352,7 +352,7 @@ class TestStaleBranches:
         mocker.patch(
             "gx.lib.stale_analyzer.merged_branches", return_value=frozenset({"feat/local"})
         )
-        mocker.patch("gx.lib.stale_analyzer.has_upstream_branch", return_value=False)
+        mocker.patch("gx.lib.stale_analyzer.tracking_branch", return_value=None)
 
         # When
         analyzer = StaleAnalyzer(protected=config.protected_branches)
@@ -368,12 +368,12 @@ class TestStaleBranches:
         mocker.patch("gx.lib.stale_analyzer.default_branch", return_value="main")
         mocker.patch("gx.lib.stale_analyzer.gone_branches", return_value=frozenset())
         mocker.patch("gx.lib.stale_analyzer.merged_branches", return_value=frozenset())
-        mocker.patch("gx.lib.stale_analyzer.has_upstream_branch", return_value=True)
+        mocker.patch("gx.lib.stale_analyzer.tracking_branch", return_value=("origin", "x"))
         mocker.patch(
             "gx.lib.stale_analyzer.all_local_branches",
             return_value=frozenset({"feat/empty", "main"}),
         )
-        mocker.patch("gx.lib.stale_analyzer.is_empty", return_value=True)
+        mocker.patch("gx.lib.stale_analyzer.is_empty_branch", return_value=True)
 
         # When
         analyzer = StaleAnalyzer(protected=config.protected_branches)

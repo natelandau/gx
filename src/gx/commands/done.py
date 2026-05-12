@@ -7,14 +7,21 @@ from pathlib import Path
 
 import typer
 from nclutils import pp
+from nclutils.git import (
+    ahead_behind,
+    current_branch,
+    gone_branches,
+    is_dirty,
+    merged_branches,
+)
 from rich.prompt import Confirm
 
-from gx.lib.branch import ahead_behind, current_branch, default_branch, is_gone, is_merged
+from gx.lib.branch import default_branch
 from gx.lib.git import check_git_repo, git, set_dry_run
 from gx.lib.github import pr_state
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 from gx.lib.sync import fetch_and_rebase, print_pull_summary, validate_branch
-from gx.lib.workspace import is_dirty, stash_if_dirty, unstash, update_submodules
+from gx.lib.workspace import stash_if_dirty, unstash, update_submodules
 from gx.lib.worktree import WorktreeInfo, list_worktrees, remove_worktree
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
@@ -60,7 +67,7 @@ def _checkout_and_pull(target_branch: str) -> None:
     """
     with pp.step(f"Switch to {target_branch}"):
         result = git("checkout", target_branch)
-        if not result.success:
+        if not result.ok:
             pp.error(f"Failed to checkout {target_branch}: {result.stderr}")
             raise typer.Exit(1)
 
@@ -82,7 +89,7 @@ def _delete_branch(branch: str) -> None:
     """
     with pp.step(f"Delete branch {branch}"):
         result = git("branch", "-D", branch)
-        if not result.success:
+        if not result.ok:
             pp.warning(f"Could not delete branch {branch}: {result.stderr}")
 
 
@@ -111,11 +118,10 @@ def _verify_merged(branch: str, target: str) -> None:
     if state is None:
         with pp.step("Refresh remote refs"):
             git("fetch", "--prune")
-        if is_gone(branch) or is_merged(branch, target):
+        if branch in gone_branches() or branch in merged_branches(target):
             return
 
-    ab = ahead_behind(branch, target)
-    n_ahead = ab[0] if ab else 0
+    n_ahead, _ = ahead_behind(branch, target)
     suffix = "" if n_ahead == 1 else "s"
     message = (
         f"Branch '{branch}' has {n_ahead} commit{suffix} not in {target} and no merge "
@@ -197,7 +203,7 @@ def done(
 
         with pp.step(f"Remove worktree {worktree.path}"):
             result = remove_worktree(worktree.path)
-            if not result.success:
+            if not result.ok:
                 pp.error(f"Failed to remove worktree {worktree.path}: {result.stderr}")
                 raise typer.Exit(1)
 

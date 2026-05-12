@@ -47,4 +47,6 @@ READ_ONLY_GIT_COMPOUND_COMMANDS: dict[str, frozenset[str]] = {
 
 KNOWN_REMOTE_NAMES: frozenset[str] = frozenset({"origin", "upstream", "fork"})
 
+GH_TIMEOUT = 15
+
 StaleReason = Literal["gone", "merged", "empty"]

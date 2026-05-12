@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from nclutils import pp
+from nclutils.pp.constants import Verbosity
 
 from gx.lib.git import set_dry_run
 
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
 def _reset_state() -> None:
     """Reset verbosity and dry-run after each test."""
     yield
-    pp.configure(verbosity=0)
+    pp.configure(verbosity=Verbosity.INFO)
     set_dry_run(enabled=False)
 
 

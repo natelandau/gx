@@ -13,7 +13,7 @@ import typer
 
 from gx.lib.branch import BranchRow, collect_branch_data
 
-from .conftest import _fail, _ok  # noqa: F401
+from .conftest import _ok
 
 
 def _branch_row(
@@ -68,7 +68,7 @@ class TestCollectBranchData:
         mocker.patch("gx.lib.worktree.list_worktrees", return_value=[])
         mocker.patch("gx.lib.branch.stash_counts", return_value={})
         mocker.patch("gx.lib.branch.ahead_behind", return_value=(2, 0))
-        mocker.patch("gx.lib.branch.tracking_remote_ref", return_value=None)
+        mocker.patch("gx.lib.branch.tracking_branch", return_value=None)
         mocker.patch("gx.lib.branch.git", return_value=_ok(stdout=" M file.py\n?? new.txt"))
         # When
         rows = collect_branch_data(show_all=False)
@@ -88,7 +88,7 @@ class TestCollectBranchData:
         mocker.patch("gx.lib.worktree.list_worktrees", return_value=[])
         mocker.patch("gx.lib.branch.stash_counts", return_value={})
         mocker.patch("gx.lib.branch.ahead_behind", return_value=(0, 0))
-        mocker.patch("gx.lib.branch.tracking_remote_ref", return_value=None)
+        mocker.patch("gx.lib.branch.tracking_branch", return_value=None)
         mocker.patch("gx.lib.branch.git", return_value=_ok(stdout=""))
         # When
         rows = collect_branch_data(show_all=False)
@@ -108,7 +108,7 @@ class TestCollectBranchData:
         mocker.patch("gx.lib.worktree.list_worktrees", return_value=[])
         mocker.patch("gx.lib.branch.stash_counts", return_value={})
         mocker.patch("gx.lib.branch.ahead_behind", return_value=(0, 0))
-        mocker.patch("gx.lib.branch.tracking_remote_ref", return_value=None)
+        mocker.patch("gx.lib.branch.tracking_branch", return_value=None)
         mocker.patch("gx.lib.branch.git", return_value=_ok(stdout=""))
         # When
         rows = collect_branch_data(show_all=True)
@@ -185,7 +185,7 @@ class TestStatusEdgeCases:
         mocker.patch("gx.lib.worktree.list_worktrees", return_value=[])
         mocker.patch("gx.lib.branch.stash_counts", return_value={})
         mocker.patch("gx.lib.branch.ahead_behind", return_value=(1, 0))
-        mocker.patch("gx.lib.branch.tracking_remote_ref", return_value=None)
+        mocker.patch("gx.lib.branch.tracking_branch", return_value=None)
 
         # When
         from gx.commands.status import status

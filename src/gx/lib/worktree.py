@@ -15,9 +15,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from gx.lib.branch import default_branch, gone_branches, is_empty, merged_branches
-from gx.lib.git import GitResult, git
+from nclutils.git import gone_branches, is_empty_branch, merged_branches
+
+from gx.lib.branch import default_branch
+from gx.lib.git import git
+
+if TYPE_CHECKING:
+    from nclutils.sh import CompletedCommand
 
 
 @dataclass(frozen=True)
@@ -74,7 +80,7 @@ def list_worktrees() -> list[WorktreeInfo]:
     The first worktree in the list is marked as is_main.
     """
     result = git("worktree", "list", "--porcelain")
-    if not result.success:
+    if not result.ok:
         return []
 
     raw_worktrees = _parse_worktree_porcelain(result.stdout)
@@ -92,7 +98,7 @@ def list_worktrees() -> list[WorktreeInfo]:
         if branch is not None and "bare" not in raw:
             wt_merged = branch in merged
             wt_gone = branch in gone
-            wt_empty = is_empty(branch, target)
+            wt_empty = is_empty_branch(branch, target)
         else:
             wt_merged = wt_gone = wt_empty = False
 
@@ -112,16 +118,13 @@ def list_worktrees() -> list[WorktreeInfo]:
     return worktrees
 
 
-def create_worktree(path: Path, branch: str, start_point: str | None = None) -> GitResult:
+def create_worktree(path: Path, branch: str, start_point: str | None = None) -> CompletedCommand:
     """Create a worktree with a new branch.
 
     Args:
         path: The filesystem path for the new worktree.
         branch: The name of the new branch to create.
         start_point: The commit/branch to base the new branch on. Defaults to HEAD.
-
-    Returns:
-        GitResult: The result of the git worktree add command.
     """
     args = ["worktree", "add", "--no-track", "-b", branch, str(path)]
     if start_point is not None:
@@ -129,15 +132,12 @@ def create_worktree(path: Path, branch: str, start_point: str | None = None) -> 
     return git(*args)
 
 
-def remove_worktree(path: Path, *, force: bool = False) -> GitResult:
+def remove_worktree(path: Path, *, force: bool = False) -> CompletedCommand:
     """Remove a worktree.
 
     Args:
         path: The filesystem path of the worktree to remove.
         force: Pass --force to remove worktrees with uncommitted changes.
-
-    Returns:
-        GitResult: The result of the git worktree remove command.
     """
     args = ["worktree", "remove"]
     if force:

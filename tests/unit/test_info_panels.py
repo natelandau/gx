@@ -6,64 +6,30 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+from nclutils.git import Remote
 from rich.panel import Panel
 
-from gx.lib.github import GhResult
-from gx.lib.info_panels import (
-    GitHubPanel,
-    StashPanel,
-    WorktreePanel,
-    _remote_to_url,
-)
+from gx.lib.info_panels import GitHubPanel, StashPanel, WorktreePanel
 from gx.lib.worktree import WorktreeInfo
+from tests.unit.conftest import _completed
 
 
-class TestRemoteToUrl:
-    """Tests for git remote to HTTPS URL conversion."""
-
-    def test_ssh_github(self):
-        """Verify git@github.com SSH format converted."""
-        assert _remote_to_url("git@github.com:user/repo.git") == "https://github.com/user/repo"
-
-    def test_ssh_protocol(self):
-        """Verify ssh:// protocol format converted."""
-        assert (
-            _remote_to_url("ssh://git@github.com/user/repo.git") == "https://github.com/user/repo"
-        )
-
-    def test_ssh_with_port(self):
-        """Verify ssh:// with port strips port number."""
-        result = _remote_to_url("ssh://git@github.com:2222/user/repo.git")
-        assert result == "https://github.com/user/repo"
-
-    def test_https_passthrough(self):
-        """Verify https:// URLs passed through with .git stripped."""
-        assert _remote_to_url("https://github.com/user/repo.git") == "https://github.com/user/repo"
-
-    def test_http_passthrough(self):
-        """Verify http:// URLs passed through."""
-        assert _remote_to_url("http://github.com/user/repo") == "http://github.com/user/repo"
-
-    def test_generic_git_at(self):
-        """Verify generic git@ format converted."""
-        assert _remote_to_url("git@gitlab.com:user/repo.git") == "https://gitlab.com/user/repo"
-
-    def test_unrecognized_returns_none(self):
-        """Verify unrecognized format returns None."""
-        assert _remote_to_url("/local/path/to/repo") is None
-
-    def test_strips_whitespace(self):
-        """Verify leading/trailing whitespace stripped."""
-        assert _remote_to_url("  git@github.com:user/repo.git  ") == "https://github.com/user/repo"
+def _remote(url: str = "git@github.com:user/repo.git") -> Remote:
+    """Build a Remote record matching nclutils.git.primary_remote output."""
+    return Remote(name="origin", url=url, web_url="https://github.com/user/repo")
 
 
 class TestGithubPanel:
     """Tests for the GitHub info panel."""
 
+    def test_returns_none_when_no_remote(self):
+        """Verify None returned when no remote is configured."""
+        assert GitHubPanel(None).render() is None
+
     def test_returns_none_when_gh_unavailable(self):
         """Verify None returned when gh CLI is not installed."""
         with patch("gx.lib.info_panels.gh_available", return_value=False):
-            result = GitHubPanel("https://github.com/user/repo").render()
+            result = GitHubPanel(_remote()).render()
         assert result is None
 
     def test_returns_none_for_non_github_remote(self):
@@ -72,7 +38,7 @@ class TestGithubPanel:
             patch("gx.lib.info_panels.gh_available", return_value=True),
             patch("gx.lib.info_panels.is_github_remote", return_value=False),
         ):
-            result = GitHubPanel("https://gitlab.com/user/repo").render()
+            result = GitHubPanel(_remote("git@gitlab.com:user/repo.git")).render()
         assert result is None
 
     def test_returns_panel_for_github_remote(self):
@@ -84,19 +50,14 @@ class TestGithubPanel:
             "isFork": False,
             "parent": None,
         }
-        gh_success = GhResult(
-            command="gh repo view --json ...",
-            returncode=0,
-            stdout=json.dumps(repo_data),
-            stderr="",
-        )
+        gh_success = _completed(returncode=0, stdout=json.dumps(repo_data))
         with (
             patch("gx.lib.info_panels.gh_available", return_value=True),
             patch("gx.lib.info_panels.is_github_remote", return_value=True),
-            patch("gx.lib.info_panels.gh", return_value=gh_success),
+            patch("gx.lib.info_panels.run_command", return_value=gh_success),
             patch("gx.lib.info_panels._gh_open_count", side_effect=lambda r: 2 if r == "pr" else 5),
         ):
-            result = GitHubPanel("https://github.com/user/repo").render()
+            result = GitHubPanel(_remote()).render()
         assert isinstance(result, Panel)
 
     def test_returns_panel_for_fork(self):
@@ -108,35 +69,25 @@ class TestGithubPanel:
             "isFork": True,
             "parent": {"nameWithOwner": "upstream/repo"},
         }
-        gh_success = GhResult(
-            command="gh repo view --json ...",
-            returncode=0,
-            stdout=json.dumps(repo_data),
-            stderr="",
-        )
+        gh_success = _completed(returncode=0, stdout=json.dumps(repo_data))
         with (
             patch("gx.lib.info_panels.gh_available", return_value=True),
             patch("gx.lib.info_panels.is_github_remote", return_value=True),
-            patch("gx.lib.info_panels.gh", return_value=gh_success),
+            patch("gx.lib.info_panels.run_command", return_value=gh_success),
             patch("gx.lib.info_panels._gh_open_count", return_value=0),
         ):
-            result = GitHubPanel("https://github.com/user/repo").render()
+            result = GitHubPanel(_remote()).render()
         assert isinstance(result, Panel)
 
     def test_returns_none_when_gh_fails(self):
         """Verify None returned when gh repo view command fails."""
-        gh_fail = GhResult(
-            command="gh repo view --json ...",
-            returncode=1,
-            stdout="",
-            stderr="not authenticated",
-        )
+        gh_fail = _completed(returncode=1, stderr="not authenticated")
         with (
             patch("gx.lib.info_panels.gh_available", return_value=True),
             patch("gx.lib.info_panels.is_github_remote", return_value=True),
-            patch("gx.lib.info_panels.gh", return_value=gh_fail),
+            patch("gx.lib.info_panels.run_command", return_value=gh_fail),
         ):
-            result = GitHubPanel("https://github.com/user/repo").render()
+            result = GitHubPanel(_remote()).render()
         assert result is None
 
 

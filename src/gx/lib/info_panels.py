@@ -7,62 +7,35 @@ __init__, call render() to produce a Rich Panel (or None).
 Usage:
     from gx.lib.info_panels import RepoPanel, GitHubPanel, StashPanel, WorktreePanel
 
-    panel = RepoPanel(root, remote_name, remote_url).render()
+    panel = RepoPanel(root, remote).render()
     console.print(panel)
 """
 
 from __future__ import annotations
 
 import json
-import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from nclutils.sh import run_command
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from gx.constants import GH_TIMEOUT
 from gx.lib.display import kv_grid
 from gx.lib.git import git
-from gx.lib.github import gh, gh_available, is_github_remote
+from gx.lib.github import gh_available, is_github_remote
 from gx.lib.worktree import list_worktrees
+
+if TYPE_CHECKING:
+    from nclutils.git import Remote
 
 _BYTES_PER_UNIT = 1024
 _SECONDS_PER_MINUTE = 60
 _SECONDS_PER_HOUR = 3600
 _SECONDS_PER_DAY = 86400
-
-
-def _remote_to_url(remote: str) -> str | None:
-    """Convert a git remote string to a clickable HTTPS URL.
-
-    Handles the common remote formats: git@host:path, ssh://..., https://, and http://.
-    Returns None for local filesystem paths or unrecognized formats.
-
-    Args:
-        remote: The raw remote URL string from git config.
-
-    Returns:
-        An HTTPS URL string, or None if the format is not recognized.
-    """
-    remote = remote.strip()
-    remote = remote.removesuffix(".git")
-
-    if remote.startswith(("https://", "http://")):
-        return remote
-
-    if remote.startswith("ssh://"):
-        without_scheme = remote[len("ssh://") :]
-        if "@" in without_scheme:
-            without_scheme = without_scheme.split("@", 1)[1]
-        without_scheme = re.sub(r"^([^/:]+):\d+(/.*)", r"\1\2", without_scheme)
-        return f"https://{without_scheme}"
-
-    m = re.match(r"^git@([^:]+):(.+)$", remote)
-    if m:
-        return f"https://{m.group(1)}/{m.group(2)}"
-
-    return None
 
 
 def _human_size(size_bytes: int) -> str:
@@ -79,45 +52,32 @@ def _human_size(size_bytes: int) -> str:
     return f"{value:.1f} TB"
 
 
-def _git_dir_size(root: Path) -> str:
-    """Calculate the total size of the .git directory.
+def _resolve_git_common_dir(root: Path) -> Path | None:
+    """Return the absolute path to the shared git directory, or None if it cannot be resolved.
 
-    Args:
-        root: The repository root path.
+    Worktrees use a per-worktree git-dir but share the object database under the main
+    repo's git-dir; --git-common-dir always points to the shared one.
     """
     result = git("rev-parse", "--git-common-dir")
-    if not result.success:
-        return "\u2014"
-
+    if not result.ok:
+        return None
     git_dir = Path(result.stdout)
-    if not git_dir.is_absolute():
-        git_dir = (root / git_dir).resolve()
+    return git_dir if git_dir.is_absolute() else (root / git_dir).resolve()
 
-    if not git_dir.is_dir():
+
+def _git_dir_size(git_common_dir: Path | None) -> str:
+    """Return the .git directory size as a human-readable string, or em-dash if unknown."""
+    if git_common_dir is None or not git_common_dir.is_dir():
         return "\u2014"
-
-    total = sum(f.stat().st_size for f in git_dir.rglob("*") if f.is_file())
+    total = sum(f.stat().st_size for f in git_common_dir.rglob("*") if f.is_file())
     return _human_size(total)
 
 
-def _last_fetch_time(root: Path) -> str:
-    """Return a human-readable time since the last fetch.
-
-    Uses git rev-parse to locate the git directory so this works correctly
-    in worktrees and repos with non-standard GIT_DIR.
-
-    Args:
-        root: The repository root path.
-    """
-    git_dir_result = git("rev-parse", "--git-common-dir")
-    if not git_dir_result.success:
+def _last_fetch_time(git_common_dir: Path | None) -> str:
+    """Return a human-readable time since the last fetch, or "Never" if not known."""
+    if git_common_dir is None:
         return "Never"
-
-    git_dir = Path(git_dir_result.stdout)
-    if not git_dir.is_absolute():
-        git_dir = (root / git_dir).resolve()
-
-    fetch_head = git_dir / "FETCH_HEAD"
+    fetch_head = git_common_dir / "FETCH_HEAD"
     if not fetch_head.exists():
         return "Never"
 
@@ -154,8 +114,12 @@ def _gh_open_count(resource: str) -> int | None:
     Args:
         resource: The gh resource type - "pr" or "issue".
     """
-    result = gh(resource, "list", "--state", "open", "--json", "number", "--jq", "length")
-    if not result.success:
+    result = run_command(
+        ["gh", resource, "list", "--state", "open", "--json", "number", "--jq", "length"],
+        timeout=GH_TIMEOUT,
+        check=False,
+    )
+    if not result.ok:
         return None
     try:
         return int(result.stdout)
@@ -168,64 +132,61 @@ class RepoPanel:
 
     Args:
         root: Repository root path.
-        remote_name: Primary remote name.
-        remote_url: Raw remote URL string.
+        remote: The primary configured remote, or None for repos without one.
     """
 
-    def __init__(self, root: Path, remote_name: str, remote_url: str) -> None:
+    def __init__(self, root: Path, remote: Remote | None) -> None:
         self.root = root
-        self.remote_name = remote_name
-        self.remote_url = remote_url
+        self.remote = remote
 
     def render(self) -> Panel:
         """Build a Rich Panel showing repository metadata as a key-value grid."""
         url_text: str | Text = "\u2014"
-        if self.remote_url:
-            url = _remote_to_url(self.remote_url)
-            url_text = Text(url, style=f"link {url}") if url else self.remote_url
+        if self.remote:
+            web_url = self.remote.web_url
+            url_text = Text(web_url, style=f"link {web_url}") if web_url else self.remote.url
 
         head_result = git("rev-parse", "--short", "HEAD")
         head_val: str | Text = (
             Text(head_result.stdout, style="yellow")
-            if head_result.success and head_result.stdout
+            if head_result.ok and head_result.stdout
             else "\u2014"
         )
 
         tag_result = git("describe", "--tags", "--abbrev=0")
         tag_val: str | Text = (
             Text(tag_result.stdout, style="bold yellow")
-            if tag_result.success and tag_result.stdout
+            if tag_result.ok and tag_result.stdout
             else "\u2014"
         )
 
         commit_result = git("rev-list", "--count", "HEAD")
-        commit_val = (
-            commit_result.stdout if commit_result.success and commit_result.stdout else "\u2014"
-        )
+        commit_val = commit_result.stdout if commit_result.ok and commit_result.stdout else "\u2014"
 
         contrib_result = git("shortlog", "-sn", "--no-merges", "HEAD")
         contrib_val = (
             str(len(contrib_result.stdout.splitlines()))
-            if contrib_result.success and contrib_result.stdout
+            if contrib_result.ok and contrib_result.stdout
             else "\u2014"
         )
 
         age_result = git("log", "--reverse", "--format=%ar", "--max-count=1")
-        age_val = age_result.stdout if age_result.success and age_result.stdout else "\u2014"
+        age_val = age_result.stdout if age_result.ok and age_result.stdout else "\u2014"
 
         sub_count = _submodule_count(self.root)
+        git_common_dir = _resolve_git_common_dir(self.root)
 
         rows: list[tuple[str | Text, str | Text]] = [
             ("Path", str(self.root)),
-            ("Remote", self.remote_name or "None"),
+            ("Remote", self.remote.name if self.remote else "None"),
             ("URL", url_text),
             ("HEAD", head_val),
             ("Latest tag", tag_val),
             ("Commits", commit_val),
             ("Contributors", contrib_val),
             ("Repo age", age_val),
-            ("Disk size", _git_dir_size(self.root)),
-            ("Last fetch", _last_fetch_time(self.root)),
+            ("Disk size", _git_dir_size(git_common_dir)),
+            ("Last fetch", _last_fetch_time(git_common_dir)),
         ]
         if sub_count:
             rows.append(("Submodules", str(sub_count)))
@@ -237,11 +198,11 @@ class GitHubPanel:
     """GitHub repository metadata panel (description, visibility, stars, PRs, issues).
 
     Args:
-        remote_url: Git remote URL to query against.
+        remote: The primary configured remote, or None.
     """
 
-    def __init__(self, remote_url: str) -> None:
-        self.remote_url = remote_url
+    def __init__(self, remote: Remote | None) -> None:
+        self.remote = remote
 
     def render(self) -> Panel | None:
         """Build a Rich Panel showing GitHub repository metadata.
@@ -249,16 +210,15 @@ class GitHubPanel:
         Returns None when gh is unavailable, the remote is not a GitHub URL,
         or the gh command fails.
         """
-        if not gh_available() or not is_github_remote(self.remote_url):
+        if self.remote is None or not gh_available() or not is_github_remote(self.remote.url):
             return None
 
-        result = gh(
-            "repo",
-            "view",
-            "--json",
-            "description,visibility,stargazerCount,isFork,parent",
+        result = run_command(
+            ["gh", "repo", "view", "--json", "description,visibility,stargazerCount,isFork,parent"],
+            timeout=GH_TIMEOUT,
+            check=False,
         )
-        if not result.success:
+        if not result.ok:
             return None
 
         try:

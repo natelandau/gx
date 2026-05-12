@@ -5,7 +5,7 @@ from __future__ import annotations
 import click
 import typer
 
-from gx.lib.git import GitResult
+from tests.unit.conftest import _completed
 
 
 class TestInfoCommand:
@@ -23,7 +23,7 @@ class TestInfoCommand:
         )
         mocker.patch("gx.commands.info.repo_root", return_value=mock_path)
         mock_git = mocker.patch("gx.commands.info.git")
-        mock_git.return_value = GitResult(command="git", returncode=0, stdout="test", stderr="")
+        mock_git.return_value = _completed(returncode=0, stdout="test", stderr="")
         mocker.patch("gx.lib.info_panels.gh_available", return_value=False)
         mocker.patch("gx.lib.info_panels.list_worktrees", return_value=[])
         mocker.patch("gx.commands.info.collect_branch_data", return_value=[])

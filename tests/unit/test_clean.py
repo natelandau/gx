@@ -83,7 +83,7 @@ class TestCleanCommand:
         mocker.patch("gx.lib.stale_analyzer.default_branch", return_value="main")
         mocker.patch("gx.lib.stale_analyzer.gone_branches", return_value=frozenset({"feat/1"}))
         mocker.patch("gx.lib.stale_analyzer.merged_branches", return_value=frozenset())
-        mocker.patch("gx.lib.stale_analyzer.has_upstream_branch", return_value=True)
+        mocker.patch("gx.lib.stale_analyzer.tracking_branch", return_value=("origin", "x"))
         mocker.patch(
             "gx.lib.stale_analyzer.all_local_branches",
             return_value=frozenset({"feat/1", "main"}),

@@ -1,67 +1,49 @@
 """Tests for gx git subprocess library."""
 
-import subprocess
-
 import pytest
 import typer
 from nclutils import pp
+from nclutils.pp.constants import Verbosity
 
 from gx.lib.git import (
-    GitResult,
     _is_read_only,
     check_git_installed,
     check_git_repo,
     get_dry_run,
     git,
+    raise_on_error,
     set_dry_run,
 )
+from tests.unit.conftest import _completed
 
 
-class TestGitResult:
-    """Tests for GitResult dataclass."""
+class TestRaiseOnError:
+    """Tests for the raise_on_error helper."""
 
-    def test_success_when_zero_returncode(self):
-        """Verify success is True when returncode is 0."""
-        result = GitResult(command="git status", returncode=0, stdout="clean", stderr="")
-        assert result.success is True
+    def test_returns_result_on_success(self):
+        """Verify raise_on_error returns the passed-in result when ok."""
+        result = _completed(returncode=0, stdout="ok")
+        assert raise_on_error(result) is result
 
-    def test_failure_when_nonzero_returncode(self):
-        """Verify success is False when returncode is non-zero."""
-        result = GitResult(command="git push", returncode=1, stdout="", stderr="rejected")
-        assert result.success is False
-
-    def test_raise_on_error_returns_self_on_success(self):
-        """Verify raise_on_error returns self when command succeeded."""
-        result = GitResult(command="git status", returncode=0, stdout="ok", stderr="")
-        assert result.raise_on_error() is result
-
-    def test_raise_on_error_exits_on_failure(self):
+    def test_exits_on_failure(self):
         """Verify raise_on_error raises typer.Exit on failure."""
-        result = GitResult(command="git push", returncode=1, stdout="", stderr="rejected")
+        result = _completed(argv=("git", "push"), returncode=1, stderr="rejected")
         with pytest.raises(typer.Exit):
-            result.raise_on_error()
+            raise_on_error(result)
 
-    def test_raise_on_error_prints_stderr(self, capsys):
-        """Verify raise_on_error prints stderr via error()."""
-        result = GitResult(command="git push", returncode=1, stdout="", stderr="access denied")
+    def test_prints_stderr(self, capsys):
+        """Verify raise_on_error prints stderr."""
+        result = _completed(argv=("git", "push"), returncode=1, stderr="access denied")
         with pytest.raises(typer.Exit):
-            result.raise_on_error()
-        captured = capsys.readouterr()
-        assert "access denied" in captured.err
+            raise_on_error(result)
+        assert "access denied" in capsys.readouterr().err
 
-    def test_raise_on_error_prints_command_when_no_stderr(self, capsys):
-        """Verify raise_on_error prints command when stderr is empty."""
-        result = GitResult(command="git push", returncode=128, stdout="", stderr="")
+    def test_prints_command_when_no_stderr(self, capsys):
+        """Verify raise_on_error falls back to the command line when stderr is empty."""
+        result = _completed(argv=("git", "push"), returncode=128)
         with pytest.raises(typer.Exit):
-            result.raise_on_error()
-        captured = capsys.readouterr()
-        assert "git push" in captured.err
-
-    def test_frozen_dataclass(self):
-        """Verify GitResult is immutable."""
-        result = GitResult(command="git status", returncode=0, stdout="", stderr="")
-        with pytest.raises(AttributeError):
-            result.returncode = 1  # type: ignore[misc]
+            raise_on_error(result)
+        assert "git push" in capsys.readouterr().err
 
 
 class TestDryRunState:
@@ -169,85 +151,69 @@ class TestGitFunction:
     """Tests for the git() function."""
 
     def test_successful_command(self, mocker):
-        """Verify git() returns GitResult with captured output."""
-        # Given a mocked subprocess that succeeds
+        """Verify git() returns the CompletedCommand with captured output."""
+        # Given a mocked run_command that succeeds
         mocker.patch(
-            "gx.lib.git.subprocess.run",
+            "gx.lib.git.run_command",
             autospec=True,
-            return_value=subprocess.CompletedProcess(
-                args=["git", "status"],
-                returncode=0,
-                stdout="on branch main\n",
-                stderr="",
-            ),
+            return_value=_completed(argv=("git", "status"), returncode=0, stdout="on branch main"),
         )
 
         # When running a git command
         result = git("status")
 
         # Then the result captures the output
-        assert result.success is True
+        assert result.ok is True
         assert result.stdout == "on branch main"
-        assert result.command == "git status"
+        assert result.argv == ("git", "status")
 
     def test_failed_command(self, mocker):
         """Verify git() captures non-zero exit codes."""
-        # Given a mocked subprocess that fails
+        # Given a mocked run_command that fails
         mocker.patch(
-            "gx.lib.git.subprocess.run",
+            "gx.lib.git.run_command",
             autospec=True,
-            return_value=subprocess.CompletedProcess(
-                args=["git", "push"],
-                returncode=1,
-                stdout="",
-                stderr="rejected\n",
-            ),
+            return_value=_completed(argv=("git", "push"), returncode=1, stderr="rejected"),
         )
 
         # When running a git command
         result = git("push", "origin", "main")
 
         # Then the result captures the failure
-        assert result.success is False
+        assert result.ok is False
         assert result.stderr == "rejected"
 
     def test_passes_timeout(self, mocker):
-        """Verify git() passes timeout to subprocess.run."""
-        # Given a mocked subprocess
+        """Verify git() passes timeout to run_command."""
+        # Given a mocked run_command
         mock_run = mocker.patch(
-            "gx.lib.git.subprocess.run",
+            "gx.lib.git.run_command",
             autospec=True,
-            return_value=subprocess.CompletedProcess(
-                args=["git", "status"], returncode=0, stdout="", stderr=""
-            ),
+            return_value=_completed(argv=("git", "status")),
         )
 
         # When running with a custom timeout
         git("status", timeout=60)
 
-        # Then subprocess.run receives the timeout
-        mock_run.assert_called_once_with(
-            ["git", "status"], capture_output=True, text=True, timeout=60, cwd=None
-        )
+        # Then run_command receives the timeout
+        _, kwargs = mock_run.call_args
+        assert kwargs["timeout"] == 60
 
     def test_default_timeout(self, mocker):
         """Verify git() uses 30 second default timeout."""
-        # Given a mocked subprocess
+        # Given a mocked run_command
         mock_run = mocker.patch(
-            "gx.lib.git.subprocess.run",
+            "gx.lib.git.run_command",
             autospec=True,
-            return_value=subprocess.CompletedProcess(
-                args=["git", "status"], returncode=0, stdout="", stderr=""
-            ),
+            return_value=_completed(argv=("git", "status")),
         )
 
         # When running without explicit timeout
         git("status")
 
-        # Then subprocess.run receives 30s timeout
-        mock_run.assert_called_once_with(
-            ["git", "status"], capture_output=True, text=True, timeout=30, cwd=None
-        )
+        # Then run_command receives 30s timeout
+        _, kwargs = mock_run.call_args
+        assert kwargs["timeout"] == 30
 
     def test_dry_run_skips_mutating_command(self):
         """Verify dry-run returns synthetic result for mutating commands."""
@@ -258,26 +224,21 @@ class TestGitFunction:
         result = git("push", "origin", "main")
 
         # Then a synthetic success result is returned without calling subprocess
-        assert result.success is True
+        assert result.ok is True
         assert result.stdout == ""
         assert result.stderr == ""
-        assert "git push origin main" in result.command
+        assert result.argv == ("git", "push", "origin", "main")
 
     def test_dry_run_executes_read_only_command(self, mocker):
         """Verify dry-run still executes read-only commands."""
         # Given dry-run is active
         set_dry_run(enabled=True)
 
-        # Given a mocked subprocess
+        # Given a mocked run_command
         mocker.patch(
-            "gx.lib.git.subprocess.run",
+            "gx.lib.git.run_command",
             autospec=True,
-            return_value=subprocess.CompletedProcess(
-                args=["git", "status"],
-                returncode=0,
-                stdout="on branch main\n",
-                stderr="",
-            ),
+            return_value=_completed(argv=("git", "status"), returncode=0, stdout="on branch main"),
         )
 
         # When running a read-only command
@@ -304,7 +265,7 @@ class TestGitFunction:
         """Verify skipped command is printed exactly once with -v."""
         # Given dry-run is active and verbosity is DEBUG
         set_dry_run(enabled=True)
-        pp.configure(verbosity=1)
+        pp.configure(verbosity=Verbosity.DEBUG)
 
         # When running a mutating command
         git("push", "origin", "main")
@@ -313,85 +274,56 @@ class TestGitFunction:
         captured = capsys.readouterr()
         assert captured.out.count("git push origin main") == 1
 
-    def test_debug_logs_command(self, mocker, capsys):
-        """Verify git() logs command via debug() at verbosity DEBUG."""
-        # Given verbosity is DEBUG
-        pp.configure(verbosity=1)
-
-        # Given a mocked subprocess
-        mocker.patch(
-            "gx.lib.git.subprocess.run",
-            autospec=True,
-            return_value=subprocess.CompletedProcess(
-                args=["git", "status"], returncode=0, stdout="", stderr=""
-            ),
-        )
-
-        # When running a command
-        git("status")
-
-        # Then the command is logged via debug()
-        captured = capsys.readouterr()
-        assert "git status" in captured.out
-
-    def test_trace_pipes_stdout(self, mocker, capsys):
-        """Verify git() pipes stdout lines through trace() at verbosity TRACE."""
+    def test_trace_passes_stream_true(self, mocker):
+        """Verify git() asks run_command to stream output at TRACE verbosity."""
         # Given verbosity is TRACE
-        pp.configure(verbosity=2)
+        pp.configure(verbosity=Verbosity.TRACE)
 
-        # Given a mocked subprocess with stdout
-        mocker.patch(
-            "gx.lib.git.subprocess.run",
+        # Given a mocked run_command
+        mock_run = mocker.patch(
+            "gx.lib.git.run_command",
             autospec=True,
-            return_value=subprocess.CompletedProcess(
-                args=["git", "log"],
-                returncode=0,
-                stdout="abc1234 first commit\ndef5678 second commit\n",
-                stderr="",
-            ),
+            return_value=_completed(argv=("git", "log")),
         )
 
         # When running a command
         git("log", "--oneline")
 
-        # Then stdout lines are piped through trace()
-        captured = capsys.readouterr()
-        assert "first commit" in captured.out
-        assert "second commit" in captured.out
+        # Then run_command is told to stream
+        _, kwargs = mock_run.call_args
+        assert kwargs["stream"] is True
 
-    def test_trace_pipes_stderr(self, mocker, capsys):
-        """Verify git() pipes stderr lines through trace() at verbosity TRACE."""
-        # Given verbosity is TRACE
-        pp.configure(verbosity=2)
+    def test_info_passes_stream_false(self, mocker):
+        """Verify git() does not stream at INFO verbosity."""
+        # Given verbosity is INFO (default)
+        pp.configure(verbosity=Verbosity.INFO)
 
-        # Given a mocked subprocess with stderr
-        mocker.patch(
-            "gx.lib.git.subprocess.run",
+        # Given a mocked run_command
+        mock_run = mocker.patch(
+            "gx.lib.git.run_command",
             autospec=True,
-            return_value=subprocess.CompletedProcess(
-                args=["git", "push"],
-                returncode=0,
-                stdout="",
-                stderr="Enumerating objects: 5, done.\n",
-            ),
+            return_value=_completed(argv=("git", "log")),
         )
 
         # When running a command
-        git("push")
+        git("log", "--oneline")
 
-        # Then stderr lines are piped through trace()
-        captured = capsys.readouterr()
-        assert "Enumerating objects" in captured.out
+        # Then run_command is not told to stream
+        _, kwargs = mock_run.call_args
+        assert kwargs["stream"] is False
 
 
 class TestGitCwd:
     """Tests for the cwd parameter on git()."""
 
     def test_git_passes_cwd_to_subprocess(self, mocker, tmp_path):
-        """Verify git() passes cwd to subprocess.run when provided."""
+        """Verify git() passes cwd to run_command when provided."""
         # Given
-        mock_run = mocker.patch("gx.lib.git.subprocess.run", autospec=True)
-        mock_run.return_value = mocker.Mock(returncode=0, stdout="", stderr="")
+        mock_run = mocker.patch(
+            "gx.lib.git.run_command",
+            autospec=True,
+            return_value=_completed(argv=("git", "status")),
+        )
 
         # When
         git("status", cwd=tmp_path)
@@ -403,8 +335,11 @@ class TestGitCwd:
     def test_git_cwd_defaults_to_none(self, mocker):
         """Verify git() does not pass cwd when not provided."""
         # Given
-        mock_run = mocker.patch("gx.lib.git.subprocess.run", autospec=True)
-        mock_run.return_value = mocker.Mock(returncode=0, stdout="", stderr="")
+        mock_run = mocker.patch(
+            "gx.lib.git.run_command",
+            autospec=True,
+            return_value=_completed(argv=("git", "status")),
+        )
 
         # When
         git("status")
@@ -419,62 +354,21 @@ class TestCheckGitRepo:
 
     def test_succeeds_in_git_repo(self, mocker):
         """Verify check_git_repo() passes when inside a git repo."""
-        # Given git rev-parse succeeds
-        mocker.patch(
-            "gx.lib.git.subprocess.run",
-            autospec=True,
-            return_value=subprocess.CompletedProcess(
-                args=["git", "rev-parse", "--is-inside-work-tree"],
-                returncode=0,
-                stdout="true\n",
-                stderr="",
-            ),
-        )
-
-        # When checking for a git repo
-        # Then no exception is raised
+        mocker.patch("gx.lib.git.is_git_repo", autospec=True, return_value=True)
         check_git_repo()
 
     def test_exits_outside_git_repo(self, mocker):
         """Verify check_git_repo() raises typer.Exit outside a git repo."""
-        # Given git rev-parse fails
-        mocker.patch(
-            "gx.lib.git.subprocess.run",
-            autospec=True,
-            return_value=subprocess.CompletedProcess(
-                args=["git", "rev-parse", "--is-inside-work-tree"],
-                returncode=128,
-                stdout="",
-                stderr="fatal: not a git repository\n",
-            ),
-        )
-
-        # When checking for a git repo
-        # Then typer.Exit is raised
+        mocker.patch("gx.lib.git.is_git_repo", autospec=True, return_value=False)
         with pytest.raises(typer.Exit):
             check_git_repo()
 
     def test_prints_error_outside_git_repo(self, mocker, capsys):
         """Verify check_git_repo() prints error message outside a git repo."""
-        # Given git rev-parse fails
-        mocker.patch(
-            "gx.lib.git.subprocess.run",
-            autospec=True,
-            return_value=subprocess.CompletedProcess(
-                args=["git", "rev-parse", "--is-inside-work-tree"],
-                returncode=128,
-                stdout="",
-                stderr="fatal: not a git repository\n",
-            ),
-        )
-
-        # When checking for a git repo
+        mocker.patch("gx.lib.git.is_git_repo", autospec=True, return_value=False)
         with pytest.raises(typer.Exit):
             check_git_repo()
-
-        # Then an error message is printed
-        captured = capsys.readouterr()
-        assert "Not a git repository" in captured.err
+        assert "Not a git repository" in capsys.readouterr().err
 
 
 class TestCheckGitInstalled:
@@ -483,7 +377,7 @@ class TestCheckGitInstalled:
     def test_passes_when_git_found(self, mocker):
         """Verify check_git_installed() passes when git is on PATH."""
         # Given git is found on PATH
-        mocker.patch("gx.lib.git.shutil.which", autospec=True, return_value="/usr/bin/git")
+        mocker.patch("gx.lib.git.is_git_installed", autospec=True, return_value=True)
 
         # When checking for git
         # Then no exception is raised
@@ -492,7 +386,7 @@ class TestCheckGitInstalled:
     def test_exits_when_git_not_found(self, mocker):
         """Verify check_git_installed() raises typer.Exit when git is missing."""
         # Given git is not found on PATH
-        mocker.patch("gx.lib.git.shutil.which", autospec=True, return_value=None)
+        mocker.patch("gx.lib.git.is_git_installed", autospec=True, return_value=False)
 
         # When checking for git
         # Then typer.Exit is raised
@@ -502,7 +396,7 @@ class TestCheckGitInstalled:
     def test_prints_error_when_git_not_found(self, mocker, capsys):
         """Verify check_git_installed() prints error message when git is missing."""
         # Given git is not found on PATH
-        mocker.patch("gx.lib.git.shutil.which", autospec=True, return_value=None)
+        mocker.patch("gx.lib.git.is_git_installed", autospec=True, return_value=False)
 
         # When checking for git
         with pytest.raises(typer.Exit):

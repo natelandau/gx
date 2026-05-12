@@ -1,9 +1,9 @@
 """Integration tests for gx feat command."""
 
+from nclutils.git import tracking_branch
 from typer.testing import CliRunner
 
 from gx.cli import app
-from gx.lib.branch import has_upstream_branch
 from tests.conftest import checkout_tmp_branch, create_tmp_branch, create_tmp_commit
 
 runner = CliRunner()
@@ -46,7 +46,7 @@ class TestFeatBranch:
         assert result.exit_code == 0
 
         # Then the new branch must not be tracking any upstream
-        assert not has_upstream_branch("feat/1")
+        assert tracking_branch("feat/1") is None
 
 
 class TestFeatWorktree:
@@ -79,4 +79,4 @@ class TestFeatWorktree:
         assert result.exit_code == 0
 
         # Then the worktree's branch must not be tracking any upstream
-        assert not has_upstream_branch("feat/1")
+        assert tracking_branch("feat/1") is None

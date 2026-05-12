@@ -5,8 +5,9 @@ from typer.testing import CliRunner
 
 from gx import __version__
 from gx.cli import app
-from gx.lib.git import GitResult, get_dry_run
+from gx.lib.git import get_dry_run
 from tests.conftest import create_tmp_branch, create_tmp_commit
+from tests.unit.conftest import _completed
 
 runner = CliRunner()
 
@@ -74,7 +75,7 @@ class TestHelpOutput:
         mocker.patch("gx.commands.info.check_git_repo", autospec=True)
         mocker.patch(
             "gx.commands.info.git",
-            return_value=GitResult(command="git", returncode=0, stdout="test", stderr=""),
+            return_value=_completed(returncode=0, stdout="test", stderr=""),
         )
         mocker.patch("gx.commands.info.repo_root", return_value=mocker.MagicMock())
         mocker.patch("gx.lib.info_panels.gh_available", return_value=False)

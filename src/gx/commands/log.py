@@ -8,7 +8,7 @@ import typer
 from nclutils import pp
 from rich.text import Text
 
-from gx.lib.git import check_git_repo, git, set_dry_run
+from gx.lib.git import check_git_repo, git, raise_on_error, set_dry_run
 from gx.lib.log_panel import LogPanel
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 
@@ -101,8 +101,7 @@ def colorize_graph_line(line: str) -> Text:
 
 def _run_graph_mode(count: int) -> None:
     """Execute graph passthrough rendering mode."""
-    result = git("log", "--graph", f"-n{count}", f"--format={_GRAPH_FORMAT}")
-    result.raise_on_error()
+    result = raise_on_error(git("log", "--graph", f"-n{count}", f"--format={_GRAPH_FORMAT}"))
 
     if not result.stdout:
         pp.warning("No commits found.")
