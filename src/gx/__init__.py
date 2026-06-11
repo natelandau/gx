@@ -1,3 +1,3 @@
 """GX - A CLI tool for managing Git repositories."""
 
-__version__ = "0.7.1"
+__version__ = "0.8.0"

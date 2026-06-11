@@ -1,3 +1,9 @@
+## v0.8.0 (2026-06-10)
+
+### Feat
+
+- **log**: badge the commit the remote default branch points to
+
 ## v0.7.1 (2026-05-12)
 
 ### Fix
