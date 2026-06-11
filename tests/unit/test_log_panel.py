@@ -125,6 +125,25 @@ class TestParseLogEntries:
         # Then the commit is not flagged
         assert entries[0].is_remote_head is False
 
+    def test_collects_remote_branches(self):
+        """Verify remote refs are collected as full remote/branch names."""
+        # Given a commit decorated with several remote branches
+        raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00main, origin/main, upstream/feature"
+        # When parsing
+        entries = _parse_entries(raw, has_body=False)
+        # Then remote refs land in remote_branches, local stays in branches
+        assert entries[0].remote_branches == ("origin/main", "upstream/feature")
+        assert entries[0].branches == ("main",)
+
+    def test_excludes_symbolic_remote_head(self):
+        """Verify symbolic remote HEAD aliases (origin/HEAD) are not collected."""
+        # Given a commit decorated with a remote branch and its HEAD alias
+        raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00origin/main, origin/HEAD"
+        # When parsing
+        entries = _parse_entries(raw, has_body=False)
+        # Then the symbolic HEAD alias is dropped
+        assert entries[0].remote_branches == ("origin/main",)
+
 
 class TestRemoteGlyph:
     """Tests for host-aware remote glyph selection."""
@@ -236,6 +255,68 @@ class TestLogPanelRender:
         console.print(panel)
         output = buf.getvalue()
         assert _GITHUB_GLYPH in output
+
+    def test_single_remote_branch_shows_icon_not_label(self, mocker):
+        """Verify a lone remote default branch stays icon-only with no text label."""
+        # Given a single remote branch in the log
+        mocker.patch(
+            "gx.lib.log_panel._remote_head_ref",
+            autospec=True,
+            return_value=("origin/main", _GITHUB_GLYPH),
+        )
+        mocker.patch(
+            "gx.lib.log_panel.git",
+            autospec=True,
+            return_value=mocker.Mock(
+                success=True,
+                stdout="\x019c96da2\x003 days ago\x00bump\x00Nate\x00HEAD -> main, origin/main",
+            ),
+        )
+        panel_obj = LogPanel(count=5)
+        # When
+        panel = panel_obj.render()
+        # Then the icon shows but the remote ref name does not
+        buf = StringIO()
+        console = Console(file=buf, width=120)
+        console.print(panel)
+        output = buf.getvalue()
+        assert _GITHUB_GLYPH in output
+        assert "origin/main" not in output
+
+    def test_renders_labeled_remote_badges(self, mocker):
+        """Verify each remote branch renders a labeled badge when several exist."""
+        # Given two commits carrying different remote branches
+        mocker.patch(
+            "gx.lib.log_panel._remote_head_ref",
+            autospec=True,
+            return_value=("origin/main", _GITHUB_GLYPH),
+        )
+        mocker.patch(
+            "gx.lib.log_panel._remote_glyphs",
+            autospec=True,
+            return_value={"origin": _GITHUB_GLYPH, "upstream": _GIT_GLYPH},
+        )
+        mocker.patch(
+            "gx.lib.log_panel.git",
+            autospec=True,
+            return_value=mocker.Mock(
+                success=True,
+                stdout=(
+                    "\x019c96da2\x002 days ago\x00bump\x00Nate\x00HEAD -> main, origin/main"
+                    "\x01cdd86d0\x003 days ago\x00feat\x00Nate\x00upstream/feature"
+                ),
+            ),
+        )
+        panel_obj = LogPanel(count=5)
+        # When
+        panel = panel_obj.render()
+        # Then both refs render with their full remote/branch label
+        buf = StringIO()
+        console = Console(file=buf, width=200)
+        console.print(panel)
+        output = buf.getvalue()
+        assert "origin/main" in output
+        assert "upstream/feature" in output
 
     def test_renders_body_when_enabled(self, mocker):
         """Verify commit body appears when show_body is True."""
