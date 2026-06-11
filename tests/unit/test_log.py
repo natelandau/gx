@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import click
 import pytest
 import typer
 from rich.panel import Panel
+from typer.core import TyperCommand
 
 from gx.commands.log import colorize_graph_line
 from gx.commands.log import log as log_callback
@@ -71,7 +71,7 @@ class TestLogCallback:
         )
         mock_cls.return_value.render.return_value = mock_panel
         # When
-        ctx = typer.Context(click.Command("log"))
+        ctx = typer.Context(TyperCommand("log"))
         log_callback(ctx=ctx, count=15, full=False, graph=False, verbose=0, dry_run=False)
         # Then
         mock_cls.assert_called_once_with(count=15, title="Log", show_body=False)
@@ -82,7 +82,7 @@ class TestLogCallback:
         # Given
         mock_log_git.return_value = _ok(stdout="* 9c96da2 3 days ago <Nate> bump release")
         # When
-        ctx = typer.Context(click.Command("log"))
+        ctx = typer.Context(TyperCommand("log"))
         log_callback(ctx=ctx, count=15, full=False, graph=True, verbose=0, dry_run=False)
         # Then
         args = mock_log_git.call_args[0]
@@ -91,7 +91,7 @@ class TestLogCallback:
     def test_full_and_graph_mutex(self, mock_log_check_git_repo, capsys):
         """Verify error when both --full and --graph are passed."""
         # When/Then
-        ctx = typer.Context(click.Command("log"))
+        ctx = typer.Context(TyperCommand("log"))
         with pytest.raises(typer.Exit):
             log_callback(ctx=ctx, count=15, full=True, graph=True, verbose=0, dry_run=False)
         captured = capsys.readouterr()

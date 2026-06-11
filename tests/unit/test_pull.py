@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import click
 import pytest
 import typer
+from typer.core import TyperCommand
 
 from gx.commands.pull import pull
 
@@ -26,7 +26,7 @@ class TestPullGuardRails:
         mocker.patch("gx.lib.sync.current_branch", autospec=True, return_value=None)
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
             pull(ctx=ctx, verbose=0, dry_run=False)
 
@@ -46,7 +46,7 @@ class TestPullGuardRails:
         mocker.patch("gx.lib.sync.tracking_branch", autospec=True, return_value=None)
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
             pull(ctx=ctx, verbose=0, dry_run=False)
 
@@ -81,7 +81,7 @@ class TestPullStash:
         ]
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         pull(ctx=ctx, verbose=0, dry_run=False)
 
         # Then
@@ -110,7 +110,7 @@ class TestPullStash:
         ]
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         pull(ctx=ctx, verbose=0, dry_run=False)
 
         # Then
@@ -140,7 +140,7 @@ class TestPullStash:
         ]
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
             pull(ctx=ctx, verbose=0, dry_run=False)
 
@@ -171,7 +171,7 @@ class TestPullFetchAndRebase:
         ]
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
             pull(ctx=ctx, verbose=0, dry_run=False)
 
@@ -200,7 +200,7 @@ class TestPullFetchAndRebase:
         ]
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
             pull(ctx=ctx, verbose=0, dry_run=False)
 
@@ -228,7 +228,7 @@ class TestPullFetchAndRebase:
         ]
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
             pull(ctx=ctx, verbose=0, dry_run=False)
 
@@ -262,7 +262,7 @@ class TestPullSubmodules:
         ]
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         pull(ctx=ctx, verbose=0, dry_run=False)
 
         # Then
@@ -290,7 +290,7 @@ class TestPullSubmodules:
         ]
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         pull(ctx=ctx, verbose=0, dry_run=False)
 
         # Then
@@ -319,7 +319,7 @@ class TestPullSubmodules:
         ]
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
             pull(ctx=ctx, verbose=0, dry_run=False)
 
@@ -353,7 +353,7 @@ class TestPullSummary:
         ]
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         pull(ctx=ctx, verbose=0, dry_run=False)
 
         # Then
@@ -383,7 +383,7 @@ class TestPullSummary:
         ]
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         pull(ctx=ctx, verbose=0, dry_run=False)
 
         # Then
@@ -416,7 +416,7 @@ class TestPullDryRun:
         ]
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         pull(ctx=ctx, verbose=0, dry_run=True)
 
         # Then
@@ -439,7 +439,7 @@ class TestPullDryRun:
         mocker.patch("gx.lib.sync.current_branch", autospec=True, return_value=None)
 
         # When
-        ctx = typer.Context(click.Command("pull"))
+        ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
             pull(ctx=ctx, verbose=0, dry_run=True)
 

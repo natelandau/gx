@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import click
 import pytest
 import typer
+from typer.core import TyperCommand
 
 from gx.commands.done import done
 from gx.lib.worktree import WorktreeInfo
@@ -53,7 +53,7 @@ class TestDoneGuards:
         mocker.patch("gx.commands.done.default_branch", autospec=True, return_value="main")
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         with pytest.raises(typer.Exit):
             done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
@@ -73,7 +73,7 @@ class TestDoneGuards:
         mocker.patch("gx.commands.done.current_branch", autospec=True, return_value=None)
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         with pytest.raises(typer.Exit):
             done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
@@ -145,7 +145,7 @@ class TestDoneMode1:
         ]
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
         # Then — gh MERGED skips the verification fetch
@@ -184,7 +184,7 @@ class TestDoneMode1:
         ]
 
         # When — should NOT raise
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
         # Then
@@ -242,7 +242,7 @@ class TestDoneMode2:
         ]
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
         # Then
@@ -277,7 +277,7 @@ class TestDoneMode2:
         mocker.patch("gx.commands.done.list_worktrees", autospec=True, return_value=[main_wt, wt])
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         with pytest.raises(typer.Exit):
             done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
@@ -318,7 +318,7 @@ class TestDoneMode2:
         mocker.patch("gx.commands.done.git", autospec=True)
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         with pytest.raises(typer.Exit):
             done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
@@ -360,7 +360,7 @@ class TestDoneVerification:
         mock_git.side_effect = _delete_calls()
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=True)
 
         # Then — none of the verification helpers were consulted
@@ -381,7 +381,7 @@ class TestDoneVerification:
         mock_git.side_effect = _delete_calls()
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
         # Then — gh was authoritative, so no fetch was needed
@@ -399,7 +399,7 @@ class TestDoneVerification:
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         with pytest.raises(typer.Exit):
             done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
@@ -416,7 +416,7 @@ class TestDoneVerification:
         mock_git.side_effect = _delete_calls()
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
         # Then
@@ -431,7 +431,7 @@ class TestDoneVerification:
         mock_git.side_effect = [_ok(), *_delete_calls()]
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
         # Then
@@ -451,7 +451,7 @@ class TestDoneVerification:
         mock_git.side_effect = [_ok(), *_delete_calls()]
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
         # Then
@@ -470,7 +470,7 @@ class TestDoneVerification:
         mock_git.side_effect = [_ok()]  # only the verification fetch
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         with pytest.raises(typer.Exit):
             done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
@@ -490,7 +490,7 @@ class TestDoneVerification:
         mock_git.side_effect = [_ok(), *_delete_calls()]
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
         # Then
@@ -515,7 +515,7 @@ class TestDoneVerification:
         mocker.patch("gx.commands.done.list_worktrees", autospec=True, return_value=[main_wt, wt])
 
         # When --force is set but worktree is dirty
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         with pytest.raises(typer.Exit):
             done(ctx=ctx, verbose=0, dry_run=False, force=True)
 
@@ -533,7 +533,7 @@ class TestDoneVerification:
         mock_git.side_effect = _delete_calls()
 
         # When
-        ctx = typer.Context(click.Command("done"))
+        ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
         # Then — message mentions branch, count, and target only

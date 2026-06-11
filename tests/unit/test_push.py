@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import click
 import pytest
 import typer
+from typer.core import TyperCommand
 
 from gx.commands.push import (
     _count_dirty_files,
@@ -182,7 +182,7 @@ class TestPushGuardRails:
         mocker.patch("gx.commands.push.current_branch", autospec=True, return_value=None)
 
         # When
-        ctx = typer.Context(click.Command("push"))
+        ctx = typer.Context(TyperCommand("push"))
         with pytest.raises(typer.Exit):
             push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
 
@@ -201,7 +201,7 @@ class TestPushGuardRails:
         )
 
         # When
-        ctx = typer.Context(click.Command("push"))
+        ctx = typer.Context(TyperCommand("push"))
         with pytest.raises(typer.Exit):
             push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
 
@@ -228,7 +228,7 @@ class TestPushGuardRails:
         ]
 
         # When
-        ctx = typer.Context(click.Command("push"))
+        ctx = typer.Context(TyperCommand("push"))
         push(ctx=ctx, verbose=0, dry_run=False, force=True, tags=False)
 
         # Then
@@ -258,7 +258,7 @@ class TestPushExecution:
         ]
 
         # When
-        ctx = typer.Context(click.Command("push"))
+        ctx = typer.Context(TyperCommand("push"))
         push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
 
         # Then
@@ -287,7 +287,7 @@ class TestPushExecution:
         ]
 
         # When
-        ctx = typer.Context(click.Command("push"))
+        ctx = typer.Context(TyperCommand("push"))
         push(ctx=ctx, verbose=0, dry_run=False, force=True, tags=False)
 
         # Then
@@ -313,7 +313,7 @@ class TestPushExecution:
         ]
 
         # When
-        ctx = typer.Context(click.Command("push"))
+        ctx = typer.Context(TyperCommand("push"))
         push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=True)
 
         # Then
@@ -339,7 +339,7 @@ class TestPushExecution:
         ]
 
         # When
-        ctx = typer.Context(click.Command("push"))
+        ctx = typer.Context(TyperCommand("push"))
         with pytest.raises(typer.Exit):
             push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
 
@@ -366,7 +366,7 @@ class TestPushExecution:
         ]
 
         # When
-        ctx = typer.Context(click.Command("push"))
+        ctx = typer.Context(TyperCommand("push"))
         push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
 
         # Then
@@ -396,7 +396,7 @@ class TestPushExecution:
         ]
 
         # When
-        ctx = typer.Context(click.Command("push"))
+        ctx = typer.Context(TyperCommand("push"))
         push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
 
         # Then
@@ -429,7 +429,7 @@ class TestPushDryRun:
         ]
 
         # When
-        ctx = typer.Context(click.Command("push"))
+        ctx = typer.Context(TyperCommand("push"))
         push(ctx=ctx, verbose=0, dry_run=True, force=False, tags=False)
 
         # Then

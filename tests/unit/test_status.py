@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import click
+from typer.core import TyperCommand
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -125,7 +125,7 @@ class TestStatusCommand:
         mocker.patch("gx.commands.status.check_git_repo", autospec=True)
         from gx.commands.status import status
 
-        ctx = typer.Context(click.Command("status"))
+        ctx = typer.Context(TyperCommand("status"))
         with pytest.raises(typer.Exit):
             status(ctx=ctx, files=True, branches=True, show_all=False)
         captured = capsys.readouterr()
@@ -146,7 +146,7 @@ class TestStatusEdgeCases:
         # When
         from gx.commands.status import status
 
-        ctx = typer.Context(click.Command("status"))
+        ctx = typer.Context(TyperCommand("status"))
         status(ctx=ctx, files=True, branches=False, show_all=False)
 
         # Then
@@ -164,7 +164,7 @@ class TestStatusEdgeCases:
         # When
         from gx.commands.status import status
 
-        ctx = typer.Context(click.Command("status"))
+        ctx = typer.Context(TyperCommand("status"))
         status(ctx=ctx, files=True, branches=False, show_all=False)
 
         # Then — should show file tree panel, no branch table
@@ -190,7 +190,7 @@ class TestStatusEdgeCases:
         # When
         from gx.commands.status import status
 
-        ctx = typer.Context(click.Command("status"))
+        ctx = typer.Context(TyperCommand("status"))
         status(ctx=ctx, files=False, branches=True, show_all=False)
 
         # Then — should show branch table, no file tree

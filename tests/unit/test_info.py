@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import click
 import typer
+from typer.core import TyperCommand
 
 from tests.unit.conftest import _completed
 
@@ -32,5 +32,5 @@ class TestInfoCommand:
 
         from gx.commands.info import info
 
-        ctx = typer.Context(click.Command("info"))
+        ctx = typer.Context(TyperCommand("info"))
         info(ctx=ctx)

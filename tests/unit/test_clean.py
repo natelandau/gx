@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import click
 import typer
+from typer.core import TyperCommand
 
 from gx.lib.worktree import WorktreeInfo
 
@@ -56,7 +56,7 @@ class TestCleanCommand:
         mocker.patch("gx.lib.stale_analyzer.all_local_branches", return_value=frozenset({"main"}))
 
         # When
-        ctx = typer.Context(click.Command("clean"))
+        ctx = typer.Context(TyperCommand("clean"))
         from gx.commands.clean import clean
 
         clean(ctx=ctx, verbose=0, dry_run=False, force=False, yes=False)
@@ -91,7 +91,7 @@ class TestCleanCommand:
         mock_confirm = mocker.patch("gx.commands.clean.Confirm.ask", autospec=True)
 
         # When
-        ctx = typer.Context(click.Command("clean"))
+        ctx = typer.Context(TyperCommand("clean"))
         from gx.commands.clean import clean
 
         clean(ctx=ctx, verbose=0, dry_run=False, force=False, yes=True)
@@ -123,7 +123,7 @@ class TestCleanCommand:
         from gx.lib.git import set_dry_run
 
         set_dry_run(enabled=True)
-        ctx = typer.Context(click.Command("clean"))
+        ctx = typer.Context(TyperCommand("clean"))
         from gx.commands.clean import clean
 
         clean(ctx=ctx, verbose=0, dry_run=True, force=False, yes=False)
@@ -178,7 +178,7 @@ class TestCleanPartialFailure:
         ]
 
         # When
-        ctx = typer.Context(click.Command("clean"))
+        ctx = typer.Context(TyperCommand("clean"))
         from gx.commands.clean import clean
 
         clean(ctx=ctx, verbose=0, dry_run=False, force=False, yes=True)

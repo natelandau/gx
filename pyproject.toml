@@ -5,9 +5,9 @@
         "Programming Language :: Python :: 3.14",
     ]
     dependencies = [
-    "nclutils>=3.3.1,<4.0.0",
+    "nclutils>=3.4.1,<4.0.0",
     "rich>=15.0.0, <16.0.0",
-    "typer>=0.25.1, <1.0.0",
+    "typer>=0.26.7,<1.0.0",
 ]
     description = "A CLI that wraps common git commands with sensible defaults, safety guards, and helpful summaries."
     license = { file = "LICENSE" }
@@ -28,10 +28,10 @@
 
 [dependency-groups]
     dev = [
-        "commitizen>=4.15.1",
-        "coverage>=7.14.0",
+        "commitizen>=4.16.3",
+        "coverage>=7.14.1",
         "duty>=1.9.0",
-        "prek>=0.3.13",
+        "prek>=0.4.4",
         "pytest-clarity>=1.0.1",
         "pytest-cov>=7.1.0",
         "pytest-devtools>=1.2.0",
@@ -40,10 +40,10 @@
         "pytest-sugar>=1.1.1",
         "pytest-xdist>=3.8.0",
         "pytest>=9.0.3",
-        "ruff>=0.15.12",
+        "ruff>=0.15.16",
         "shellcheck-py>=0.11.0.1",
-        "ty>=0.0.35",
-        "typos>=1.46.1",
+        "ty>=0.0.48",
+        "typos>=1.47.2",
         "yamllint>=1.38.0",
     ]
 
