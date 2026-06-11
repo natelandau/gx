@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from io import StringIO
 
+import pytest
 from rich.console import Console
 
-from gx.lib.log_panel import LogPanel, _parse_entries
+from gx.lib.log_panel import (
+    _GIT_GLYPH,
+    _GITHUB_GLYPH,
+    _GITLAB_GLYPH,
+    LogPanel,
+    _parse_entries,
+    _remote_glyph,
+)
 
 
 class TestParseLogEntries:
@@ -98,6 +106,42 @@ class TestParseLogEntries:
         # Then
         assert entries == []
 
+    def test_flags_remote_head(self):
+        """Verify the commit matching the remote default ref is flagged."""
+        # Given a commit decorated with the remote default branch
+        raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00main, origin/main"
+        # When parsing with that ref as the remote default
+        entries = _parse_entries(raw, has_body=False, remote_default_ref="origin/main")
+        # Then the commit is flagged as the remote head, remote ref still hidden
+        assert entries[0].is_remote_head is True
+        assert entries[0].branches == ("main",)
+
+    def test_non_default_remote_not_flagged(self):
+        """Verify a remote ref other than the default does not flag remote head."""
+        # Given a commit decorated only with a non-default remote ref
+        raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00upstream/main"
+        # When parsing with a different ref as the remote default
+        entries = _parse_entries(raw, has_body=False, remote_default_ref="origin/main")
+        # Then the commit is not flagged
+        assert entries[0].is_remote_head is False
+
+
+class TestRemoteGlyph:
+    """Tests for host-aware remote glyph selection."""
+
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("https://github.com/me/repo.git", _GITHUB_GLYPH),
+            ("git@gitlab.com:me/repo.git", _GITLAB_GLYPH),
+            ("https://bitbucket.org/me/repo.git", _GIT_GLYPH),
+        ],
+    )
+    def test_glyph_by_host(self, url, expected):
+        """Verify the glyph matches the remote host."""
+        # When / Then
+        assert _remote_glyph(url) == expected
+
 
 class TestLogPanelRender:
     """Tests for LogPanel rendering output."""
@@ -166,6 +210,32 @@ class TestLogPanelRender:
         output = buf.getvalue()
         assert "v1.0" in output
         assert "\U0001f3f7" in output  # 🏷
+
+    def test_renders_remote_head_badge(self, mocker):
+        """Verify the host glyph appears for the remote default branch commit."""
+        # Given a remote resolving to origin/main with the GitHub glyph
+        mocker.patch(
+            "gx.lib.log_panel._remote_head_ref",
+            autospec=True,
+            return_value=("origin/main", _GITHUB_GLYPH),
+        )
+        mocker.patch(
+            "gx.lib.log_panel.git",
+            autospec=True,
+            return_value=mocker.Mock(
+                success=True,
+                stdout="\x019c96da2\x003 days ago\x00bump\x00Nate\x00HEAD -> main, origin/main",
+            ),
+        )
+        panel_obj = LogPanel(count=5)
+        # When
+        panel = panel_obj.render()
+        # Then
+        buf = StringIO()
+        console = Console(file=buf, width=120)
+        console.print(panel)
+        output = buf.getvalue()
+        assert _GITHUB_GLYPH in output
 
     def test_renders_body_when_enabled(self, mocker):
         """Verify commit body appears when show_body is True."""

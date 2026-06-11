@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from nclutils.git import default_branch as remote_default_branch
+from nclutils.git import primary_remote
 from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
@@ -22,12 +24,18 @@ from rich.text import Text
 
 from gx.constants import KNOWN_REMOTE_NAMES
 from gx.lib.git import git
+from gx.lib.github import is_github_remote
 
 _RECORD_SEP = "\x01"
 _FIELD_SEP = "\x00"
 _DEFAULT_FORMAT = "%x01%h%x00%ar%x00%s%x00%an%x00%D"
 _FULL_FORMAT = "%x01%h%x00%ar%x00%s%x00%an%x00%D%x00%b"
 _REMOTE_REF_PARTS = 2
+
+# Host-aware Nerd Font glyphs for the remote-head badge.
+_GITHUB_GLYPH = ""
+_GITLAB_GLYPH = ""
+_GIT_GLYPH = ""
 
 
 @dataclass(frozen=True)
@@ -42,6 +50,47 @@ class LogEntry:
     tags: tuple[str, ...] = field(default_factory=tuple)
     body: str = ""
     is_head: bool = False
+    is_remote_head: bool = False
+
+
+def _remote_glyph(url: str) -> str:
+    """Pick a host-aware Nerd Font glyph for a remote URL.
+
+    Lets the remote-head badge echo where the code actually lives (GitHub,
+    GitLab, or a generic git host) instead of a one-size-fits-all icon.
+
+    Args:
+        url: The remote URL to classify.
+    """
+    if is_github_remote(url):
+        return _GITHUB_GLYPH
+    if "gitlab" in url:
+        return _GITLAB_GLYPH
+    return _GIT_GLYPH
+
+
+def _remote_head_ref() -> tuple[str | None, str]:
+    """Resolve the remote default branch ref and its host glyph.
+
+    Resolved once per render so the per-commit loop stays free of git calls.
+    The branch is resolved against the same remote whose name prefixes the ref,
+    so the two never disagree (e.g. a `fork`/`origin` setup) and the ref matches
+    the remote-tracking decoration git emits in the log.
+
+    Returns:
+        A (ref, glyph) tuple such as ("origin/main", ""). The ref is None when
+        no remote is configured or its HEAD is not resolved, in which case no
+        badge is drawn rather than guessing a ref that may match nothing.
+    """
+    remote = primary_remote()
+    if remote is None:
+        return None, ""
+
+    target = remote_default_branch(remote=remote.name)
+    if target is None:
+        return None, ""
+
+    return f"{remote.name}/{target}", _remote_glyph(remote.url)
 
 
 def _make_table() -> Table:
@@ -60,12 +109,19 @@ def _make_table() -> Table:
     return table
 
 
-def _render_refs(entry: LogEntry) -> Text:
-    """Build inline ref badge Text for a single commit."""
+def _render_refs(entry: LogEntry, remote_glyph: str) -> Text:
+    """Build inline ref badge Text for a single commit.
+
+    Args:
+        entry: The commit whose refs to render.
+        remote_glyph: Glyph for the remote-head badge, drawn when the commit is
+            where the remote default branch points.
+    """
     refs = Text()
-    items: list[tuple[str, str]] = [(f" {b} ", "reverse bold magenta") for b in entry.branches] + [
-        (f" \U0001f3f7 {t} ", "reverse bold cyan") for t in entry.tags
-    ]
+    items: list[tuple[str, str]] = [(f" {b} ", "reverse bold magenta") for b in entry.branches]
+    if entry.is_remote_head:
+        items.append((f" {remote_glyph} ", "reverse bold blue"))
+    items += [(f" \U0001f3f7 {t} ", "reverse bold cyan") for t in entry.tags]
     for i, (label, style) in enumerate(items):
         refs.append(label, style=style)
         if i < len(items) - 1:
@@ -73,12 +129,12 @@ def _render_refs(entry: LogEntry) -> Text:
     return refs
 
 
-def _add_row(table: Table, entry: LogEntry, *, dim: bool = False) -> None:
+def _add_row(table: Table, entry: LogEntry, remote_glyph: str, *, dim: bool = False) -> None:
     """Add a single commit row with inline ref badges to the table."""
     style = "dim" if dim else None
     subject_col = Text()
-    if entry.branches or entry.tags:
-        subject_col.append_text(_render_refs(entry))
+    if entry.branches or entry.tags or entry.is_remote_head:
+        subject_col.append_text(_render_refs(entry, remote_glyph))
         subject_col.append(" ")
     subject_col.append(entry.subject, style=style)
     table.add_row(
@@ -89,23 +145,30 @@ def _add_row(table: Table, entry: LogEntry, *, dim: bool = False) -> None:
     )
 
 
-def _parse_refs(raw_refs: str) -> tuple[tuple[str, ...], tuple[str, ...], bool]:
-    """Parse a raw ref decoration string into branches, tags, and HEAD flag.
+def _parse_refs(
+    raw_refs: str, remote_default_ref: str | None
+) -> tuple[tuple[str, ...], tuple[str, ...], bool, bool]:
+    """Parse a raw ref decoration string into branches, tags, and HEAD flags.
 
-    Filters out HEAD, HEAD -> X, and remote refs.
+    Filters out HEAD, HEAD -> X, and remote refs. A remote ref matching
+    ``remote_default_ref`` is dropped from branches like any other remote, but
+    flips the remote-head flag so the commit can be badged.
 
     Args:
         raw_refs: The raw %D output for a single commit.
+        remote_default_ref: The remote default branch ref (e.g. "origin/main"),
+            or None when no remote is configured.
 
     Returns:
-        A (branches, tags, is_head) tuple.
+        A (branches, tags, is_head, is_remote_head) tuple.
     """
     branches: list[str] = []
     tags: list[str] = []
     is_head = False
+    is_remote_head = False
 
     if not raw_refs.strip():
-        return (), (), False
+        return (), (), False, False
 
     for raw_ref in raw_refs.split(", "):
         ref = raw_ref.strip()
@@ -123,13 +186,18 @@ def _parse_refs(raw_refs: str) -> tuple[tuple[str, ...], tuple[str, ...], bool]:
                 and "/" not in parts[0]
                 and parts[0] in KNOWN_REMOTE_NAMES
             )
-            if not is_remote:
+            if is_remote:
+                if ref == remote_default_ref:
+                    is_remote_head = True
+            else:
                 branches.append(ref)
 
-    return tuple(branches), tuple(tags), is_head
+    return tuple(branches), tuple(tags), is_head, is_remote_head
 
 
-def _parse_entries(raw: str, *, has_body: bool) -> list[LogEntry]:
+def _parse_entries(
+    raw: str, *, has_body: bool, remote_default_ref: str | None = None
+) -> list[LogEntry]:
     """Parse raw git log output into LogEntry objects.
 
     Split on SOH byte (record separator), then on null byte (field separator).
@@ -137,6 +205,8 @@ def _parse_entries(raw: str, *, has_body: bool) -> list[LogEntry]:
     Args:
         raw: Raw stdout from git log with SOH/null-delimited format.
         has_body: Whether the format includes the body field (%b).
+        remote_default_ref: The remote default branch ref (e.g. "origin/main")
+            used to flag which commit the remote points to.
 
     Returns:
         List of LogEntry objects with per-commit refs parsed.
@@ -158,7 +228,7 @@ def _parse_entries(raw: str, *, has_body: bool) -> list[LogEntry]:
             continue
 
         raw_refs = fields[4].strip()
-        branches, tags, is_head = _parse_refs(raw_refs)
+        branches, tags, is_head, is_remote_head = _parse_refs(raw_refs, remote_default_ref)
         body = fields[5].strip() if has_body else ""
 
         entries.append(
@@ -171,6 +241,7 @@ def _parse_entries(raw: str, *, has_body: bool) -> list[LogEntry]:
                 tags=tags,
                 body=body,
                 is_head=is_head,
+                is_remote_head=is_remote_head,
             )
         )
 
@@ -182,7 +253,8 @@ class LogPanel:
 
     Fetch, parse, and render recent commits as a Rich Panel. Branch names
     render as reverse bold magenta badges; tags render as reverse bold cyan
-    badges with a 🏷 icon.
+    badges with a 🏷 icon. The commit the remote default branch points to gets
+    a reverse bold blue badge with a host-aware icon (GitHub, GitLab, or git).
 
     Args:
         count: Number of commits to show.
@@ -213,13 +285,16 @@ class LogPanel:
         if not result.ok or not result.stdout:
             return None
 
-        entries = _parse_entries(result.stdout, has_body=self.show_body)
+        remote_default_ref, remote_glyph = _remote_head_ref()
+        entries = _parse_entries(
+            result.stdout, has_body=self.show_body, remote_default_ref=remote_default_ref
+        )
         if not entries:
             return None
 
-        return self._build_panel(entries)
+        return self._build_panel(entries, remote_glyph)
 
-    def _build_panel(self, entries: list[LogEntry]) -> Panel:
+    def _build_panel(self, entries: list[LogEntry], remote_glyph: str) -> Panel:
         """Build the Rich Panel from parsed log entries."""
         head_idx = next(
             (i for i, e in enumerate(entries) if e.is_head),
@@ -229,14 +304,14 @@ class LogPanel:
         if not self.show_body:
             table = _make_table()
             for i, entry in enumerate(entries):
-                _add_row(table, entry, dim=i < head_idx)
+                _add_row(table, entry, remote_glyph, dim=i < head_idx)
             return Panel(table, title=self.title, border_style="dim")
 
         renderables: list[Table | Text] = []
         for i, entry in enumerate(entries):
             dim = i < head_idx
             row_table = _make_table()
-            _add_row(row_table, entry, dim=dim)
+            _add_row(row_table, entry, remote_glyph, dim=dim)
             if entry.body:
                 row_table.add_row("", "", Text(entry.body, style="dim"), "")
                 renderables.append(row_table)
