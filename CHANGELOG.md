@@ -1,3 +1,10 @@
+## v0.9.0 (2026-06-11)
+
+### Feat
+
+- **config**: add nerd font toggle with ASCII fallback for log icons
+- **log**: label remote branches when more than one exists (#21)
+
 ## v0.8.0 (2026-06-10)
 
 ### Feat
