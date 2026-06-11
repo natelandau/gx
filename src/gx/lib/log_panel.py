@@ -123,16 +123,19 @@ def _remote_glyphs() -> dict[str, str]:
         A map of remote name to glyph, e.g. {"origin": "", "upstream": ""}.
         Empty when no remotes are configured.
     """
-    result = git("remote")
+    result = git("remote", "-v")
     if not result.ok or not result.stdout:
         return {}
 
+    # `git remote -v` lines are "<name>\t<url> (fetch|push)" -- one call beats a
+    # per-remote `get-url`, and the duplicate fetch/push rows resolve identically.
     glyphs: dict[str, str] = {}
-    for name in (line.strip() for line in result.stdout.splitlines()):
-        if not name:
+    for line in result.stdout.splitlines():
+        name, _, rest = line.partition("\t")
+        url = rest.split(maxsplit=1)[0] if rest else ""
+        if not name or not url:
             continue
-        url_result = git("remote", "get-url", name)
-        glyphs[name] = _remote_glyph(url_result.stdout.strip() if url_result.ok else "")
+        glyphs[name] = _remote_glyph(url)
     return glyphs
 
 
