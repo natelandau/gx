@@ -23,6 +23,7 @@ from rich.table import Table
 from rich.text import Text
 
 from gx.constants import KNOWN_REMOTE_NAMES
+from gx.lib.config import config
 from gx.lib.git import git
 from gx.lib.github import is_github_remote
 
@@ -31,6 +32,11 @@ _FIELD_SEP = "\x00"
 _DEFAULT_FORMAT = "%x01%h%x00%ar%x00%s%x00%an%x00%D"
 _FULL_FORMAT = "%x01%h%x00%ar%x00%s%x00%an%x00%D%x00%b"
 _REMOTE_REF_PARTS = 2
+
+# Plain-ASCII fallback used when nerd fonts are disabled (config.nerd_font = False),
+# so terminals without a Nerd Font show a readable symbol instead of tofu. One
+# symbol covers every host since the remote name follows it in labeled badges.
+_REMOTE_FALLBACK = "@"
 
 # Host-aware Nerd Font glyphs for the remote-head badge.
 _GITHUB_GLYPH = ""
@@ -73,14 +79,18 @@ class _RemoteBadges:
 
 
 def _remote_glyph(url: str) -> str:
-    """Pick a host-aware Nerd Font glyph for a remote URL.
+    """Pick a host-aware badge token for a remote URL.
 
     Lets the remote-head badge echo where the code actually lives (GitHub,
-    GitLab, or a generic git host) instead of a one-size-fits-all icon.
+    GitLab, or a generic git host) instead of a one-size-fits-all icon. When
+    nerd fonts are disabled via config, every host collapses to a single ASCII
+    symbol so the badge stays readable without a Nerd Font.
 
     Args:
         url: The remote URL to classify.
     """
+    if not config.nerd_font:
+        return _REMOTE_FALLBACK
     if is_github_remote(url):
         return _GITHUB_GLYPH
     if "gitlab" in url:
@@ -166,8 +176,9 @@ def _render_refs(entry: LogEntry, badges: _RemoteBadges) -> Text:
     refs = Text()
     items: list[tuple[str, str]] = [(f" {b} ", "reverse bold magenta") for b in entry.branches]
     if badges.labeled:
+        fallback_glyph = _remote_glyph("")  # for refs whose remote is no longer configured
         for ref in entry.remote_branches:
-            glyph = badges.glyphs.get(ref.split("/", 1)[0], _GIT_GLYPH)
+            glyph = badges.glyphs.get(ref.split("/", 1)[0], fallback_glyph)
             items.append((f" {glyph} {ref} ", "reverse bold blue"))
     elif entry.is_remote_head:
         items.append((f" {badges.default_glyph} ", "reverse bold blue"))

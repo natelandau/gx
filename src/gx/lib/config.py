@@ -26,6 +26,7 @@ class GxConfig:
         default_factory=lambda: frozenset({"main", "master", "develop"})
     )
     remote_name: str = "origin"
+    nerd_font: bool = True
 
 
 def _load_toml() -> dict:
@@ -66,6 +67,26 @@ def _extract_str(table: dict, key: str, config_path: str) -> str | None:
     return None
 
 
+def _extract_bool(table: dict, key: str, config_path: str) -> bool | None:
+    """Extract a boolean value from a TOML table, warning if the type is wrong.
+
+    Args:
+        table: A TOML table dict.
+        key: The key to look up in the table.
+        config_path: Dotted config path for warning messages (e.g. "display.nerd_font").
+
+    Returns:
+        The boolean value, or None if the key is absent or has the wrong type.
+    """
+    if key not in table:
+        return None
+    value = table[key]
+    if isinstance(value, bool):
+        return value
+    pp.warning(f"Config: {config_path} must be a boolean, got {type(value).__name__}. Skipping.")
+    return None
+
+
 def _extract_toml_values(data: dict) -> dict:
     """Extract and validate known config values from parsed TOML data.
 
@@ -98,6 +119,13 @@ def _extract_toml_values(data: dict) -> dict:
     if isinstance(remote, dict) and (name := _extract_str(remote, "name", "remote.name")):
         values["remote_name"] = name
 
+    display = data.get("display", {})
+    if (
+        isinstance(display, dict)
+        and (nerd_font := _extract_bool(display, "nerd_font", "display.nerd_font")) is not None
+    ):
+        values["nerd_font"] = nerd_font
+
     return values
 
 
@@ -121,6 +149,10 @@ def _load_env_overrides() -> dict:
 
     if val := os.environ.get("GX_REMOTE_NAME"):
         overrides["remote_name"] = val
+
+    # Any value other than an explicit falsy token enables nerd fonts.
+    if (val := os.environ.get("GX_NERD_FONT")) is not None:
+        overrides["nerd_font"] = val.strip().lower() not in {"0", "false", "no", "off", ""}
 
     return overrides
 

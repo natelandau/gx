@@ -32,6 +32,11 @@ class TestGxConfigDefaults:
         cfg = GxConfig()
         assert cfg.remote_name == "origin"
 
+    def test_default_nerd_font_enabled(self):
+        """Verify nerd fonts are enabled by default."""
+        cfg = GxConfig()
+        assert cfg.nerd_font is True
+
     def test_config_is_frozen(self):
         """Verify GxConfig instances are immutable."""
         import dataclasses
@@ -141,6 +146,34 @@ class TestTomlLoading:
         captured = capsys.readouterr()
         assert "prefix" in captured.err.lower()
 
+    def test_loads_nerd_font_from_toml(self, tmp_path, monkeypatch):
+        """Verify display.nerd_font is read from TOML."""
+        # Given a config file disabling nerd fonts
+        config_file = tmp_path / "config.toml"
+        config_file.write_text("[display]\nnerd_font = false\n")
+        monkeypatch.setattr("gx.lib.config.CONFIG_DIR", tmp_path)
+
+        # When building config
+        cfg = _build_config()
+
+        # Then nerd fonts are disabled
+        assert cfg.nerd_font is False
+
+    def test_warns_on_nerd_font_wrong_type(self, tmp_path, monkeypatch, capsys):
+        """Verify a non-boolean display.nerd_font warns and keeps the default."""
+        # Given a config file with a string instead of a boolean
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[display]\nnerd_font = "yes"\n')
+        monkeypatch.setattr("gx.lib.config.CONFIG_DIR", tmp_path)
+
+        # When building config
+        cfg = _build_config()
+
+        # Then the default is kept and a warning names the key
+        assert cfg.nerd_font is True
+        captured = capsys.readouterr()
+        assert "nerd_font" in captured.err.lower()
+
 
 class TestEnvVarOverrides:
     """Tests for environment variable overrides."""
@@ -183,6 +216,17 @@ class TestEnvVarOverrides:
         monkeypatch.setenv("GX_PROTECTED_BRANCHES", "main, master,")
         cfg = _build_config()
         assert cfg.protected_branches == frozenset({"main", "master"})
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [("false", False), ("0", False), ("no", False), ("off", False), ("true", True)],
+    )
+    def test_env_nerd_font_parses_truthiness(self, tmp_path, monkeypatch, value, expected):
+        """Verify GX_NERD_FONT parses common truthy/falsy strings."""
+        monkeypatch.setattr("gx.lib.config.CONFIG_DIR", tmp_path)
+        monkeypatch.setenv("GX_NERD_FONT", value)
+        cfg = _build_config()
+        assert cfg.nerd_font is expected
 
 
 class TestResolveWorktreeDirectory:

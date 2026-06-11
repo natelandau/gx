@@ -178,6 +178,9 @@ directory = ".worktrees"                   # worktree base directory
 
 [remote]
 name = "origin"                            # default remote name
+
+[display]
+nerd_font = true                           # use Nerd Font icons in the log (see Icons below)
 ```
 
 Every key is optional. Only specify the ones you want to change.
@@ -189,6 +192,12 @@ The worktree directory can be relative or absolute:
 - Relative paths (e.g. `.worktrees`) are resolved from the repo root and must be listed in `.gitignore`.
 - Absolute paths (e.g. `~/tmp/worktrees`) are used as-is and have no `.gitignore` requirement.
 
+### Icons
+
+The `gx log` and `gx info` panels badge remote branches with [Nerd Font](https://www.nerdfonts.com) icons that match the host (GitHub, GitLab, or generic git). gx defaults to `nerd_font = true` because most developer terminals have a Nerd Font installed.
+
+If those badges show empty boxes or garbled characters, your terminal font lacks the icons. Set `nerd_font = false` (or `GX_NERD_FONT=false`) and gx falls back to a plain `@` symbol for every remote.
+
 ### Environment variables
 
 Override any setting per-invocation with environment variables. These take priority over the config file.
@@ -199,6 +208,7 @@ Override any setting per-invocation with environment variables. These take prior
 | `GX_WORKTREE_DIRECTORY` | `GX_WORKTREE_DIRECTORY=~/wt gx feat -w`          |
 | `GX_PROTECTED_BRANCHES` | `GX_PROTECTED_BRANCHES=main,production gx clean` |
 | `GX_REMOTE_NAME`        | `GX_REMOTE_NAME=upstream gx push`                |
+| `GX_NERD_FONT`          | `GX_NERD_FONT=false gx log`                      |
 
 ## License
 

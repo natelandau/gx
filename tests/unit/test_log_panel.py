@@ -7,10 +7,12 @@ from io import StringIO
 import pytest
 from rich.console import Console
 
+from gx.lib.config import GxConfig
 from gx.lib.log_panel import (
     _GIT_GLYPH,
     _GITHUB_GLYPH,
     _GITLAB_GLYPH,
+    _REMOTE_FALLBACK,
     LogPanel,
     _parse_entries,
     _remote_glyph,
@@ -160,6 +162,23 @@ class TestRemoteGlyph:
         """Verify the glyph matches the remote host."""
         # When / Then
         assert _remote_glyph(url) == expected
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://github.com/me/repo.git",
+            "git@gitlab.com:me/repo.git",
+            "https://bitbucket.org/me/repo.git",
+        ],
+    )
+    def test_ascii_fallback_when_nerd_font_disabled(self, mocker, url):
+        """Verify every host collapses to one ASCII symbol when nerd fonts are off."""
+        # Given nerd fonts disabled
+        mocker.patch("gx.lib.log_panel.config", GxConfig(nerd_font=False))
+        # When resolving any remote glyph
+        result = _remote_glyph(url)
+        # Then the single ASCII fallback is used, never a Private-Use-Area glyph
+        assert result == _REMOTE_FALLBACK
 
 
 class TestLogPanelRender:
@@ -317,6 +336,34 @@ class TestLogPanelRender:
         output = buf.getvalue()
         assert "origin/main" in output
         assert "upstream/feature" in output
+
+    def test_remote_badge_uses_ascii_fallback_when_disabled(self, mocker):
+        """Verify the remote badge renders an ASCII token when nerd fonts are off."""
+        # Given nerd fonts disabled and a single remote default branch
+        mocker.patch("gx.lib.log_panel.config", GxConfig(nerd_font=False))
+        mocker.patch(
+            "gx.lib.log_panel._remote_head_ref",
+            autospec=True,
+            return_value=("origin/main", _REMOTE_FALLBACK),
+        )
+        mocker.patch(
+            "gx.lib.log_panel.git",
+            autospec=True,
+            return_value=mocker.Mock(
+                success=True,
+                stdout="\x019c96da2\x003 days ago\x00bump\x00Nate\x00HEAD -> main, origin/main",
+            ),
+        )
+        panel_obj = LogPanel(count=5)
+        # When
+        panel = panel_obj.render()
+        # Then the ASCII symbol shows and no Private-Use-Area glyph leaks through
+        buf = StringIO()
+        console = Console(file=buf, width=120)
+        console.print(panel)
+        output = buf.getvalue()
+        assert _REMOTE_FALLBACK in output
+        assert _GITHUB_GLYPH not in output
 
     def test_renders_body_when_enabled(self, mocker):
         """Verify commit body appears when show_body is True."""
