@@ -43,6 +43,9 @@ def default_branch() -> str:
 
     Ask nclutils for the remote-advertised default first, then fall back to a
     local main/master probe so repos without ``origin/HEAD`` set still work.
+    Finally fall back to the branch HEAD points at, which covers brand-new repos
+    with an unborn HEAD (no commits yet, so ``refs/heads/main`` does not exist)
+    and repos whose default branch has a non-standard name.
 
     Raises:
         typer.Exit: If no default branch can be determined.
@@ -54,6 +57,10 @@ def default_branch() -> str:
     for candidate in ("main", "master"):
         if branch_exists(candidate):
             return candidate
+
+    cur = current_branch()
+    if cur:
+        return cur
 
     pp.error("Could not determine default branch.")
     raise typer.Exit(1)

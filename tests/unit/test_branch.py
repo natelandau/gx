@@ -29,9 +29,20 @@ class TestDefaultBranch:
         )
         assert default_branch() == "master"
 
+    def test_falls_back_to_current_branch(self, mocker):
+        """Verify default_branch() falls back to HEAD when no remote or main/master exists."""
+        # Given a fresh repo with no remote symref and no main/master branch
+        mocker.patch("gx.lib.branch.nc_default_branch", autospec=True, return_value=None)
+        mocker.patch("gx.lib.branch.branch_exists", autospec=True, return_value=False)
+        mocker.patch("gx.lib.branch.current_branch", autospec=True, return_value="trunk")
+
+        # When/Then default_branch falls back to the current branch
+        assert default_branch() == "trunk"
+
     def test_exits_when_no_default_found(self, mocker):
         """Verify default_branch() exits when no default branch can be found."""
         mocker.patch("gx.lib.branch.nc_default_branch", autospec=True, return_value=None)
         mocker.patch("gx.lib.branch.branch_exists", autospec=True, return_value=False)
+        mocker.patch("gx.lib.branch.current_branch", autospec=True, return_value=None)
         with pytest.raises(typer.Exit):
             default_branch()
