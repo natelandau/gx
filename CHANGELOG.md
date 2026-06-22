@@ -1,3 +1,9 @@
+## v0.9.2 (2026-06-22)
+
+### Fix
+
+- **repo**: handle brand-new repositories with no commits
+
 ## v0.9.1 (2026-06-22)
 
 ### Fix
