@@ -1,3 +1,9 @@
+## v0.9.1 (2026-06-22)
+
+### Fix
+
+- **branch**: work in fresh local repos that have no remote
+
 ## v0.9.0 (2026-06-11)
 
 ### Feat
