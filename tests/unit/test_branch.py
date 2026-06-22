@@ -3,7 +3,23 @@
 import pytest
 import typer
 
-from gx.lib.branch import default_branch
+from gx.lib.branch import default_branch, has_commits
+
+
+class TestHasCommits:
+    """Tests for has_commits()."""
+
+    def test_true_when_repo_has_commits(self, tmp_git_repo):
+        """Verify has_commits() is True for a repo with at least one commit."""
+        # Given a repo with an initial commit (tmp_git_repo fixture)
+        # When/Then has_commits reports True
+        assert has_commits() is True
+
+    def test_false_for_unborn_head(self, empty_git_repo):
+        """Verify has_commits() is False for a fresh repo with no commits."""
+        # Given a freshly initialized repo with an unborn HEAD (empty_git_repo fixture)
+        # When/Then has_commits reports False
+        assert has_commits() is False
 
 
 class TestDefaultBranch:

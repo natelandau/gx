@@ -2,23 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import typer
 from nclutils import pp
 from nclutils.git import primary_remote, stash_counts
 from rich.console import Group
+from rich.panel import Panel
 from rich.table import Table
 
-from gx.lib.branch import collect_branch_data, count_file_statuses
+from gx.lib.branch import collect_branch_data, count_file_statuses, has_commits
 from gx.lib.display import render_branch_panel, render_working_tree_panel
 from gx.lib.git import check_git_repo, git, repo_root
 from gx.lib.info_panels import GitHubPanel, RepoPanel, StashPanel, WorktreePanel
 from gx.lib.log_panel import LogPanel
-
-if TYPE_CHECKING:
-    from rich.panel import Panel
-
+from gx.lib.status_panel import _info_text
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 WIDE_THRESHOLD = 100
@@ -100,6 +96,16 @@ def info(
 
     repo_p = RepoPanel(root, remote).render()
     github_p = GitHubPanel(remote).render()
+
+    # A brand-new repo has an unborn HEAD; branch/worktree queries that need a
+    # commit-ish would abort, so show the repo metadata and stop here.
+    if not has_commits():
+        _compose_dashboard(
+            repo=repo_p,
+            github=github_p,
+            branches=Panel(_info_text("No commits yet"), title="Branches", border_style="dim"),
+        )
+        return
 
     stash_data = stash_counts()
     porcelain_result = git("status", "--porcelain")

@@ -44,6 +44,8 @@ Show a dashboard with panels for repository metadata, branches, working tree sta
 
 When the `gh` CLI is installed and the remote is on GitHub, an additional panel shows the repo description, visibility, stars, and open PR/issue counts. Stash and worktree panels appear only when there's something to show.
 
+In a brand-new repo with no commits yet, `gx info` (and `gx status`) show the repository metadata and a "No commits yet" placeholder instead of the branch and commit panels.
+
 ```sh
 gx info                  # full dashboard
 gx                       # same as gx info
@@ -84,6 +86,8 @@ gx feat -L               # branch from local default (no fetch)
 ```
 
 By default, `gx feat` fetches the default branch from origin first so the new branch starts at the latest remote tip. Pass `-L` (`--local`) to branch from your local default instead, which keeps any unpushed commits.
+
+`gx feat` requires at least one commit. In a brand-new repo with no commits yet, make an initial commit before creating a feature branch.
 
 Worktree mode (`-w`) lets you work on multiple branches simultaneously without stashing. When the worktree directory is inside the repo, it must be listed in `.gitignore`.
 

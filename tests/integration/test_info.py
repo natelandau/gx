@@ -53,6 +53,41 @@ class TestInfoCommand:
         assert result.exit_code == 0
 
 
+class TestInfoEmptyRepo:
+    """Tests for info command in a brand-new repo with no commits."""
+
+    def test_info_handles_repo_with_no_commits(self, empty_git_repo: Path):
+        """Verify info exits cleanly in an unborn-HEAD repo instead of crashing."""
+        # Given a freshly initialized repo with no commits (empty_git_repo fixture)
+        # When running info
+        result = runner.invoke(app, ["info"])
+
+        # Then it succeeds and reports the empty state without a traceback
+        assert result.exit_code == 0, result.output
+        assert result.exception is None
+        assert "no commits yet" in result.output.lower()
+
+    def test_default_command_handles_no_commits(self, empty_git_repo: Path):
+        """Verify bare gx exits cleanly in an unborn-HEAD repo."""
+        # Given a freshly initialized repo with no commits (empty_git_repo fixture)
+        # When running the default command
+        result = runner.invoke(app, [])
+
+        # Then it succeeds without a traceback
+        assert result.exit_code == 0, result.output
+        assert result.exception is None
+
+    def test_status_handles_no_commits(self, empty_git_repo: Path):
+        """Verify status exits cleanly in an unborn-HEAD repo instead of crashing."""
+        # Given a freshly initialized repo with no commits (empty_git_repo fixture)
+        # When running status
+        result = runner.invoke(app, ["status"])
+
+        # Then it succeeds without a traceback
+        assert result.exit_code == 0, result.output
+        assert result.exception is None
+
+
 class TestInfoOutsideGitRepo:
     """Tests for info command outside a git repo."""
 

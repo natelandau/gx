@@ -64,3 +64,18 @@ class TestCleanIntegration:
         from gx.lib.branch import all_local_branches
 
         assert "feat/old" in all_local_branches()
+
+
+class TestCleanEmptyRepo:
+    """Tests for gx clean in a brand-new repo with no commits."""
+
+    def test_clean_handles_repo_with_no_commits(self, empty_git_repo):
+        """Verify clean exits cleanly in an unborn-HEAD repo instead of crashing."""
+        # Given a freshly initialized repo with no commits (empty_git_repo fixture)
+        # When running clean
+        result = runner.invoke(app, ["clean", "-y"])
+
+        # Then it succeeds with nothing to clean and no traceback
+        assert result.exit_code == 0, result.output
+        assert result.exception is None
+        assert "Nothing to clean" in result.output

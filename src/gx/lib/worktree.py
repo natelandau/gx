@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from nclutils.git import gone_branches, is_empty_branch, merged_branches
 
-from gx.lib.branch import default_branch
+from gx.lib.branch import default_branch, has_commits
 from gx.lib.git import git
 
 if TYPE_CHECKING:
@@ -87,15 +87,18 @@ def list_worktrees() -> list[WorktreeInfo]:
     if not raw_worktrees:
         return []
 
-    target = default_branch()
-    merged = merged_branches(target)
-    gone = gone_branches()
+    # An unborn HEAD has no commit object, so merged/gone/empty queries against
+    # it abort with "malformed object name". Skip enrichment entirely in that case.
+    enrich = has_commits()
+    target = default_branch() if enrich else ""
+    merged = merged_branches(target) if enrich else []
+    gone = gone_branches() if enrich else []
     worktrees: list[WorktreeInfo] = []
 
     for i, raw in enumerate(raw_worktrees):
         branch = raw.get("branch")
 
-        if branch is not None and "bare" not in raw:
+        if enrich and branch is not None and "bare" not in raw:
             wt_merged = branch in merged
             wt_gone = branch in gone
             wt_empty = is_empty_branch(branch, target)

@@ -80,3 +80,28 @@ class TestFeatWorktree:
 
         # Then the worktree's branch must not be tracking any upstream
         assert tracking_branch("feat/1") is None
+
+
+class TestFeatEmptyRepo:
+    """Tests for gx feat in a brand-new repo with no commits."""
+
+    def test_feat_reports_no_commits(self, empty_git_repo):
+        """Verify feat errors with a clear message when the repo has no commits."""
+        # Given a freshly initialized repo with no commits (empty_git_repo fixture)
+        # When attempting to create a feature branch
+        result = runner.invoke(app, ["feat", "login"])
+
+        # Then it exits with a friendly error and no traceback
+        assert result.exit_code != 0
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert "no commits yet" in result.output.lower()
+
+    def test_feat_local_reports_no_commits(self, empty_git_repo):
+        """Verify feat --local also errors clearly when the repo has no commits."""
+        # Given a freshly initialized repo with no commits (empty_git_repo fixture)
+        # When attempting to create a feature branch in local mode
+        result = runner.invoke(app, ["feat", "--local", "login"])
+
+        # Then it exits with a friendly error and no traceback
+        assert result.exit_code != 0
+        assert "no commits yet" in result.output.lower()

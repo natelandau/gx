@@ -7,7 +7,7 @@ from nclutils import pp
 from nclutils.git import ahead_behind, branch_exists, current_branch, is_dirty
 from nclutils.sh import ShellCommandError
 
-from gx.lib.branch import default_branch
+from gx.lib.branch import default_branch, has_commits
 from gx.lib.config import config, resolve_worktree_directory
 from gx.lib.git import check_git_repo, git, raise_on_error, repo_root, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
@@ -167,6 +167,15 @@ def _prepare_feat_branch(name: str | None, *, local: bool) -> tuple[str, str, st
     branch = current_branch()
     if branch is None:
         pp.error("Cannot create feature branch in detached HEAD state.")
+        raise typer.Exit(1)
+
+    # Git cannot branch from an unborn HEAD, so a feature branch is impossible
+    # until the repo has its first commit.
+    if not has_commits():
+        pp.error(
+            "Repository has no commits yet.",
+            details=["Make an initial commit before creating a feature branch."],
+        )
         raise typer.Exit(1)
 
     default = default_branch()

@@ -98,9 +98,10 @@ src/gx/
 ### Branch Queries
 
 - Branch queries run through `src/gx/lib/branch.py`
-- Import: `from gx.lib.branch import current_branch, default_branch, is_merged, is_gone, is_empty, has_upstream, tracking_branch`
+- Import: `from gx.lib.branch import current_branch, default_branch, has_commits, is_merged, is_gone, is_empty, has_upstream, tracking_branch`
 - `current_branch()` — returns branch name or `None` for detached HEAD
-- `default_branch()` — detects default branch (remote → local main → local master)
+- `default_branch()` — detects default branch (remote → local main → local master → current branch)
+- `has_commits()` — True if the repo has at least one commit; `False` for an unborn HEAD (brand-new repo). Gate commit-dependent queries (merged/gone/empty, ahead/behind) on it so they don't abort with "malformed object name"
 - `has_upstream()` / `tracking_branch()` — check/get remote tracking info
 - `is_merged(branch, target)` — True if branch is merged into target
 - `is_gone(branch)` — True if upstream was deleted on remote

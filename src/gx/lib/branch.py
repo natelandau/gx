@@ -66,6 +66,17 @@ def default_branch() -> str:
     raise typer.Exit(1)
 
 
+def has_commits() -> bool:
+    """Report whether the repository has at least one commit.
+
+    A freshly ``git init``'d repo has an unborn HEAD: the checked-out branch ref
+    exists in name only and resolves to no commit object. Callers use this to
+    skip commit-dependent queries (``git branch --merged``, ahead/behind counts)
+    that abort with "malformed object name" against such a ref.
+    """
+    return git("rev-parse", "--verify", "--quiet", "HEAD").ok
+
+
 @dataclass(frozen=True)
 class BranchRow:
     """Data for one branch in the status display."""

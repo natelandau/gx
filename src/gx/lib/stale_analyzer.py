@@ -25,7 +25,7 @@ from nclutils.git import (
     tracking_branch,
 )
 
-from gx.lib.branch import default_branch
+from gx.lib.branch import default_branch, has_commits
 from gx.lib.worktree import list_worktrees
 
 if TYPE_CHECKING:
@@ -86,6 +86,11 @@ class StaleAnalyzer:
         Returns:
             A 3-tuple of (worktree candidates, branch candidates, skipped dirty worktrees).
         """
+        # An unborn HEAD has no commits, so there is nothing stale to clean and
+        # the merged/empty queries would abort against a ref with no commit object.
+        if not has_commits():
+            return [], [], []
+
         wt_candidates, wt_skipped = self._find_stale_worktrees()
         worktree_branch_names = {c.branch for c in wt_candidates} | {c.branch for c in wt_skipped}
         br_candidates = self._find_stale_branches(worktree_branch_names)

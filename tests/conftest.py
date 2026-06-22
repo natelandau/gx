@@ -95,6 +95,26 @@ def tmp_git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return repo
 
 
+@pytest.fixture
+def empty_git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Create a brand-new git repo with an unborn HEAD (no commits, no remote).
+
+    Mirrors the state of a freshly ``git init``'d project before the first
+    commit: HEAD points at a branch ref that resolves to no commit object.
+
+    Returns:
+        Path to the working repo directory.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run_git("init", "-b", "main", str(repo))
+    _run_git("config", "user.name", "Test", cwd=repo)
+    _run_git("config", "user.email", "test@test.com", cwd=repo)
+
+    monkeypatch.chdir(repo)
+    return repo
+
+
 def _run_git(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     """Run a git command for test setup. Raises on failure."""
     return subprocess.run(  # noqa: S603
