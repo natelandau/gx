@@ -40,6 +40,7 @@ src/gx/
         done.py              # Post-merge cleanup: checkout main, pull, delete branch
         feat.py              # Feature branch/worktree management
         info.py              # Repository dashboard
+        integrate.py        # Reconcile a diverged branch (rebase vs merge)
         log.py               # Git log subcommand
         pull.py              # Pull subcommand
         push.py              # Push subcommand
@@ -116,6 +117,15 @@ src/gx/
 - `create_worktree(path, branch)` — creates worktree with new branch
 - `remove_worktree(path)` — removes worktree
 - `is_main` worktree is never a cleanup candidate
+
+### Sync and Reconcile
+
+- The reconcile engine lives in `src/gx/lib/sync.py`, shared by `pull` and `integrate`: one engine, two entry points
+- Import: `from gx.lib.sync import SyncState, Strategy, classify_sync_state, resolve_strategy, reconcile_divergence`
+- `classify_sync_state(ahead, behind)`: returns `SyncState.UP_TO_DATE`, `FAST_FORWARD`, or `DIVERGED` from ahead/behind counts
+- `resolve_strategy(...)`: picks a `Strategy` (`REBASE`/`MERGE`/`FF_ONLY`) by precedence: explicit flag, then `integrate.strategy` config, then `None` to signal the caller should prompt
+- `reconcile_divergence(...)`: orchestrates a diverged branch, previewing the commits on each side, resolving the strategy, and executing the rebase or merge, reporting conflicts and rolling back a stash on failure
+- `integrate.strategy` config (`ask`/`rebase`/`merge`/`ff-only`, default `ask`) drives the default reconcile strategy for both `gx pull` and `gx integrate`
 
 ### Adding a New Subcommand
 

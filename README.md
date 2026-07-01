@@ -6,7 +6,7 @@ A CLI wrapper around git that adds sensible defaults, safety guards, and summari
 
 - Auto-numbered feature branches with optional worktree isolation
 - Push with dirty-tree warnings and a confirmation prompt before touching the default branch
-- Pull with automatic stash/unstash and rebase
+- Pull with automatic stash/unstash and rebase, with guided rebase-or-merge reconciliation on divergence
 - Batch cleanup of merged, gone, and empty branches
 - Color-coded commit log across all branches with inline branch and tag badges
 - Repository dashboard with metadata, branches, GitHub info, and recent commits
@@ -36,7 +36,7 @@ gx done                  # checkout main, pull, delete feat/1
 
 ## Commands
 
-Every command supports `-h` for help. The mutating commands (`feat`, `push`, `pull`, `clean`, `done`) and `log` also support `-v`/`-vv` for verbosity and `-n` for dry-run.
+Every command supports `-h` for help. The mutating commands (`feat`, `push`, `pull`, `integrate`, `clean`, `done`) and `log` also support `-v`/`-vv` for verbosity and `-n` for dry-run.
 
 ### `gx info`
 
@@ -109,10 +109,13 @@ Safety guards:
 
 ### `gx pull`
 
-Fetch and rebase the current branch onto its upstream. Handles uncommitted changes automatically.
+Fetch and rebase the current branch onto its upstream. Handles uncommitted changes automatically. If the branch has diverged from its upstream, gx guides you through reconciling it instead of failing the rebase.
 
 ```sh
 gx pull                  # pull and rebase
+gx pull --rebase         # reconcile a diverged branch by rebasing
+gx pull --merge          # reconcile a diverged branch with a merge commit
+gx pull --ff-only        # only fast-forward; fail if the branch has diverged
 gx pull -v               # pull with debug output
 ```
 
@@ -120,12 +123,33 @@ The full sequence:
 
 1. Stash uncommitted changes (including untracked files)
 2. Fetch from the remote
-3. Rebase onto the upstream branch
+3. Rebase onto the upstream branch, or reconcile a divergence
 4. Update submodules if `.gitmodules` is present
 5. Restore the stash
 6. Print a summary of new commits
 
-If a rebase conflict occurs, gx restores your stash and prints resolution steps.
+If the branch has only diverged (both ahead of and behind its upstream), gx shows the commits unique to each side and asks whether to reconcile by rebase or merge, unless `--rebase`, `--merge`, `--ff-only`, or the `integrate.strategy` config setting already decides it. If a rebase or merge conflict occurs, gx leaves the operation in progress and prints resolution steps; any changes it stashed are left in the stash for you to restore with `git stash pop` after you resolve the conflict.
+
+### `gx integrate` (alias: `gx int`)
+
+Reconcile the current branch with another ref, choosing between rebase and merge when they've diverged. Unlike `gx pull`, it doesn't touch your upstream or stash: it refuses to run on a dirty working tree instead.
+
+```sh
+gx integrate              # reconcile with the upstream
+gx integrate main         # bring main into the current branch
+gx integrate main --merge # merge main in without prompting
+gx int main -n            # preview integrating main
+```
+
+The current branch always receives the changes. With no argument, gx integrates against the upstream tracking branch; given a ref (a local branch like `main` or a remote-qualified ref like `origin/main`), gx fetches it if it names a known remote and brings its commits into the current branch.
+
+Depending on how the branch relates to the target:
+
+- **Already up to date**: nothing to do.
+- **Fast-forward** (only behind): gx fast-forwards automatically.
+- **Diverged** (both ahead and behind): gx previews the commits unique to each side, then reconciles by rebase or merge. Pass `--rebase`, `--merge`, or `--ff-only` to skip the prompt, or set `integrate.strategy` in your config. `--ff-only` fails cleanly if the branch has actually diverged.
+
+`gx integrate` refuses to run against a dirty working tree. Commit or stash your changes first.
 
 ### `gx clean`
 
@@ -185,6 +209,9 @@ name = "origin"                            # default remote name
 
 [display]
 nerd_font = true                           # use Nerd Font icons in the log (see Icons below)
+
+[integrate]
+strategy = "ask"                           # ask, rebase, merge, or ff-only: default strategy for reconciling a diverged branch
 ```
 
 Every key is optional. Only specify the ones you want to change.
@@ -213,6 +240,7 @@ Override any setting per-invocation with environment variables. These take prior
 | `GX_PROTECTED_BRANCHES` | `GX_PROTECTED_BRANCHES=main,production gx clean` |
 | `GX_REMOTE_NAME`        | `GX_REMOTE_NAME=upstream gx push`                |
 | `GX_NERD_FONT`          | `GX_NERD_FONT=false gx log`                      |
+| `GX_INTEGRATE_STRATEGY` | `GX_INTEGRATE_STRATEGY=rebase gx pull`           |
 
 ## License
 
