@@ -28,7 +28,7 @@ class TestPullGuardRails:
         # When
         ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
-            pull(ctx=ctx, verbose=0, dry_run=False)
+            pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then
         captured = capsys.readouterr()
@@ -48,7 +48,7 @@ class TestPullGuardRails:
         # When
         ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
-            pull(ctx=ctx, verbose=0, dry_run=False)
+            pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then
         captured = capsys.readouterr()
@@ -65,6 +65,7 @@ class TestPullStash:
         mock_check_git_repo,
         mock_current_branch,
         mock_tracking_branch,
+        mock_ahead_behind,
         mock_git,
     ):
         """Verify dirty working tree is stashed and restored after pull."""
@@ -82,7 +83,7 @@ class TestPullStash:
 
         # When
         ctx = typer.Context(TyperCommand("pull"))
-        pull(ctx=ctx, verbose=0, dry_run=False)
+        pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then
         calls = list(mock_git.call_args_list)
@@ -96,6 +97,7 @@ class TestPullStash:
         mock_check_git_repo,
         mock_current_branch,
         mock_tracking_branch,
+        mock_ahead_behind,
         mock_git,
     ):
         """Verify no stash calls when working tree is clean."""
@@ -111,7 +113,7 @@ class TestPullStash:
 
         # When
         ctx = typer.Context(TyperCommand("pull"))
-        pull(ctx=ctx, verbose=0, dry_run=False)
+        pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then
         calls = list(mock_git.call_args_list)
@@ -124,6 +126,7 @@ class TestPullStash:
         mock_check_git_repo,
         mock_current_branch,
         mock_tracking_branch,
+        mock_ahead_behind,
         mock_git,
         capsys,
     ):
@@ -142,7 +145,7 @@ class TestPullStash:
         # When
         ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
-            pull(ctx=ctx, verbose=0, dry_run=False)
+            pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then
         captured = capsys.readouterr()
@@ -173,7 +176,7 @@ class TestPullFetchAndRebase:
         # When
         ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
-            pull(ctx=ctx, verbose=0, dry_run=False)
+            pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then - stash pop was called as part of rollback
         calls = list(mock_git.call_args_list)
@@ -186,13 +189,14 @@ class TestPullFetchAndRebase:
         mock_check_git_repo,
         mock_current_branch,
         mock_tracking_branch,
+        mock_ahead_behind,
         mock_git,
         capsys,
     ):
         """Verify error message when pull --rebase fails on clean tree."""
         # Given
         mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=False)
-        mocker.patch("gx.lib.sync.is_rebase_in_progress", autospec=True, return_value=False)
+        mocker.patch("gx.commands.pull.is_rebase_in_progress", autospec=True, return_value=False)
         mock_git.side_effect = [
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
             _ok(),  # fetch
@@ -202,7 +206,7 @@ class TestPullFetchAndRebase:
         # When
         ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
-            pull(ctx=ctx, verbose=0, dry_run=False)
+            pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then
         captured = capsys.readouterr()
@@ -214,13 +218,14 @@ class TestPullFetchAndRebase:
         mock_check_git_repo,
         mock_current_branch,
         mock_tracking_branch,
+        mock_ahead_behind,
         mock_git,
         capsys,
     ):
         """Verify rebase conflict guidance is shown when rebase is in progress."""
         # Given
         mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=False)
-        mocker.patch("gx.lib.sync.is_rebase_in_progress", autospec=True, return_value=True)
+        mocker.patch("gx.commands.pull.is_rebase_in_progress", autospec=True, return_value=True)
         mock_git.side_effect = [
             _ok(stdout="abc123"),  # rev-parse HEAD (before)
             _ok(),  # fetch
@@ -230,12 +235,44 @@ class TestPullFetchAndRebase:
         # When
         ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
-            pull(ctx=ctx, verbose=0, dry_run=False)
+            pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then
         captured = capsys.readouterr()
         assert "rebase --continue" in captured.err
         assert "rebase --abort" in captured.err
+
+    def test_rebase_conflict_dirty_leaves_stash(
+        self,
+        mocker,
+        mock_check_git_repo,
+        mock_current_branch,
+        mock_tracking_branch,
+        mock_ahead_behind,
+        mock_git,
+        capsys,
+    ):
+        """Verify a rebase conflict on a stashed tree leaves the stash and warns."""
+        # Given a dirty tree (so pull stashes) and a rebase that conflicts
+        mocker.patch("gx.lib.workspace.is_dirty", autospec=True, return_value=True)
+        mocker.patch("gx.commands.pull.is_rebase_in_progress", autospec=True, return_value=True)
+        mock_git.side_effect = [
+            _ok(),  # stash --include-untracked
+            _ok(stdout="abc123"),  # rev-parse HEAD (before)
+            _ok(),  # fetch
+            _fail(),  # pull --rebase fails with a conflict
+        ]
+
+        # When
+        ctx = typer.Context(TyperCommand("pull"))
+        with pytest.raises(typer.Exit):
+            pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
+
+        # Then the user is told the stash is still there and no pop is attempted mid-conflict
+        captured = capsys.readouterr()
+        assert "remain stashed" in captured.err
+        calls = list(mock_git.call_args_list)
+        assert not any("stash" in c.args and "pop" in c.args for c in calls)
 
 
 class TestPullSubmodules:
@@ -247,6 +284,7 @@ class TestPullSubmodules:
         mock_check_git_repo,
         mock_current_branch,
         mock_tracking_branch,
+        mock_ahead_behind,
         mock_git,
     ):
         """Verify submodule update is called when .gitmodules exists."""
@@ -263,7 +301,7 @@ class TestPullSubmodules:
 
         # When
         ctx = typer.Context(TyperCommand("pull"))
-        pull(ctx=ctx, verbose=0, dry_run=False)
+        pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then
         calls = list(mock_git.call_args_list)
@@ -276,6 +314,7 @@ class TestPullSubmodules:
         mock_check_git_repo,
         mock_current_branch,
         mock_tracking_branch,
+        mock_ahead_behind,
         mock_git,
     ):
         """Verify no submodule calls when .gitmodules does not exist."""
@@ -291,7 +330,7 @@ class TestPullSubmodules:
 
         # When
         ctx = typer.Context(TyperCommand("pull"))
-        pull(ctx=ctx, verbose=0, dry_run=False)
+        pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then
         calls = list(mock_git.call_args_list)
@@ -304,6 +343,7 @@ class TestPullSubmodules:
         mock_check_git_repo,
         mock_current_branch,
         mock_tracking_branch,
+        mock_ahead_behind,
         mock_git,
         capsys,
     ):
@@ -321,7 +361,7 @@ class TestPullSubmodules:
         # When
         ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
-            pull(ctx=ctx, verbose=0, dry_run=False)
+            pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then
         captured = capsys.readouterr()
@@ -337,6 +377,7 @@ class TestPullSummary:
         mock_check_git_repo,
         mock_current_branch,
         mock_tracking_branch,
+        mock_ahead_behind,
         mock_git,
         capsys,
     ):
@@ -354,7 +395,7 @@ class TestPullSummary:
 
         # When
         ctx = typer.Context(TyperCommand("pull"))
-        pull(ctx=ctx, verbose=0, dry_run=False)
+        pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then
         captured = capsys.readouterr()
@@ -368,6 +409,7 @@ class TestPullSummary:
         mock_check_git_repo,
         mock_current_branch,
         mock_tracking_branch,
+        mock_ahead_behind,
         mock_git,
         capsys,
     ):
@@ -384,7 +426,7 @@ class TestPullSummary:
 
         # When
         ctx = typer.Context(TyperCommand("pull"))
-        pull(ctx=ctx, verbose=0, dry_run=False)
+        pull(ctx=ctx, verbose=0, dry_run=False, rebase=False, merge=False, ff_only=False)
 
         # Then
         captured = capsys.readouterr()
@@ -400,6 +442,7 @@ class TestPullDryRun:
         mock_check_git_repo,
         mock_current_branch,
         mock_tracking_branch,
+        mock_ahead_behind,
         mock_git,
     ):
         """Verify all git calls are made in dry-run mode with dirty tree."""
@@ -417,7 +460,7 @@ class TestPullDryRun:
 
         # When
         ctx = typer.Context(TyperCommand("pull"))
-        pull(ctx=ctx, verbose=0, dry_run=True)
+        pull(ctx=ctx, verbose=0, dry_run=True, rebase=False, merge=False, ff_only=False)
 
         # Then
         assert mock_git.call_count == 6
@@ -441,7 +484,7 @@ class TestPullDryRun:
         # When
         ctx = typer.Context(TyperCommand("pull"))
         with pytest.raises(typer.Exit):
-            pull(ctx=ctx, verbose=0, dry_run=True)
+            pull(ctx=ctx, verbose=0, dry_run=True, rebase=False, merge=False, ff_only=False)
 
         # Then
         captured = capsys.readouterr()
