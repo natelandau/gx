@@ -139,6 +139,23 @@ class TestDryRunFlag:
         assert get_dry_run() is True
 
 
+def test_integrate_registered() -> None:
+    """Verify the integrate command shows in help."""
+    # When asking for help
+    result = runner.invoke(app, ["-h"])
+    # Then integrate is listed
+    assert "integrate" in result.output
+
+
+def test_int_alias_registered() -> None:
+    """Verify the int alias routes to the integrate command."""
+    # When invoking the int alias with help
+    result = runner.invoke(app, ["int", "-h"])
+    # Then the alias succeeds and shows integrate-specific help
+    assert result.exit_code == 0
+    assert "reconcile" in result.output.lower()
+
+
 def test_clean_shows_help():
     """Verify clean command is registered and shows help."""
     result = runner.invoke(app, ["clean", "--help"])

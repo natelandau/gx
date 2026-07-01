@@ -8,7 +8,7 @@ from nclutils.git import is_git_repo
 from typer import rich_utils
 
 from gx import __version__
-from gx.commands import clean, done, feat, info, log, pull, push, status
+from gx.commands import clean, done, feat, info, integrate, log, pull, push, status
 from gx.lib.git import check_git_installed
 from gx.lib.nclutils_logging import configure_nclutils_logging
 from gx.lib.options import VERBOSE_OPTION
@@ -26,6 +26,8 @@ app.add_typer(done.app, name="done")
 app.add_typer(status.app, name="status")
 app.add_typer(log.app, name="log")
 app.add_typer(info.app, name="info")
+app.add_typer(integrate.app, name="integrate")
+app.add_typer(integrate.app, name="int")
 
 
 def _version_callback(value: bool) -> None:  # noqa: FBT001
