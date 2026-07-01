@@ -74,6 +74,16 @@ def mock_check_git_repo(mocker):
 
 
 @pytest.fixture
+def mock_ahead_behind(mocker):
+    """Patch ahead_behind() at the pull command's usage site, returning (0, 0) by default.
+
+    A (0, 0) result classifies as SyncState.UP_TO_DATE, keeping tests on the
+    non-diverged pull path without invoking a real git subprocess.
+    """
+    return mocker.patch("gx.commands.pull.ahead_behind", autospec=True, return_value=(0, 0))
+
+
+@pytest.fixture
 def mock_push_git(mocker):
     """Patch git() at the push command's usage site and return the mock."""
     return mocker.patch("gx.commands.push.git", autospec=True)

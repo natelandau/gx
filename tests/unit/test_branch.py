@@ -3,7 +3,30 @@
 import pytest
 import typer
 
-from gx.lib.branch import default_branch, has_commits
+from gx.lib.branch import default_branch, has_commits, is_remote_ref
+from tests.conftest import create_tmp_branch
+
+
+class TestIsRemoteRef:
+    """Tests for is_remote_ref()."""
+
+    def test_true_for_remote_qualified_ref(self, tmp_git_repo):
+        """Verify a ref prefixed by a configured remote is a remote ref."""
+        # Given the origin remote from the fixture
+        # When/Then origin/main is recognized as a remote ref
+        assert is_remote_ref("origin/main") is True
+
+    def test_false_for_local_branch_without_slash(self, tmp_git_repo):
+        """Verify a plain local branch name is not a remote ref."""
+        # When/Then a bare branch name is local
+        assert is_remote_ref("main") is False
+
+    def test_false_for_local_branch_with_slash(self, tmp_git_repo):
+        """Verify a local branch whose name contains a slash is not a remote ref."""
+        # Given a local branch named like feat/x (no matching remote 'feat')
+        create_tmp_branch(tmp_git_repo, "feat/x")
+        # When/Then the slash does not make it a remote ref
+        assert is_remote_ref("feat/x") is False
 
 
 class TestHasCommits:

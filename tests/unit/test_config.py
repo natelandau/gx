@@ -6,7 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from gx.lib.config import GxConfig, _build_config, resolve_worktree_directory
+from gx.lib.config import (
+    VALID_STRATEGIES,
+    GxConfig,
+    _build_config,
+    _extract_toml_values,
+    _load_env_overrides,
+    resolve_worktree_directory,
+)
 
 
 class TestGxConfigDefaults:
@@ -251,3 +258,55 @@ class TestResolveWorktreeDirectory:
         result = resolve_worktree_directory(Path("/some/repo"))
         assert result == Path.home() / "worktrees"
         assert result.is_absolute()
+
+
+def test_extract_toml_values_integrate_strategy_valid() -> None:
+    """Verify a valid integrate.strategy is read from TOML."""
+    # Given TOML with a valid strategy
+    data = {"integrate": {"strategy": "rebase"}}
+    # When extracting values
+    values = _extract_toml_values(data)
+    # Then the strategy is picked up
+    assert values["integrate_strategy"] == "rebase"
+
+
+def test_extract_toml_values_integrate_strategy_invalid_falls_back(capsys) -> None:
+    """Verify an invalid integrate.strategy is dropped so the default applies."""
+    # Given TOML with an invalid strategy
+    data = {"integrate": {"strategy": "bogus"}}
+    # When extracting values
+    values = _extract_toml_values(data)
+    # Then the invalid value is not applied
+    assert "integrate_strategy" not in values
+    # And a warning is emitted
+    captured = capsys.readouterr()
+    assert "integrate.strategy" in captured.err.lower()
+
+
+def test_load_env_overrides_integrate_strategy(monkeypatch) -> None:
+    """Verify GX_INTEGRATE_STRATEGY overrides the strategy."""
+    # Given the env var set to a valid strategy
+    monkeypatch.setenv("GX_INTEGRATE_STRATEGY", "merge")
+    # When loading env overrides
+    overrides = _load_env_overrides()
+    # Then the override is present
+    assert overrides["integrate_strategy"] == "merge"
+
+
+def test_load_env_overrides_integrate_strategy_invalid_falls_back(monkeypatch, capsys) -> None:
+    """Verify an invalid GX_INTEGRATE_STRATEGY is rejected and falls back to default."""
+    # Given the env var set to an invalid strategy
+    monkeypatch.setenv("GX_INTEGRATE_STRATEGY", "bogus")
+    # When loading env overrides
+    overrides = _load_env_overrides()
+    # Then the invalid value is not applied
+    assert "integrate_strategy" not in overrides
+    # And a warning is emitted
+    captured = capsys.readouterr()
+    assert "gx_integrate_strategy" in captured.err.lower()
+
+
+def test_valid_strategies_membership() -> None:
+    """Verify the allowed strategy set is exactly the four documented values."""
+    # Then
+    assert {"ask", "rebase", "merge", "ff-only"} == VALID_STRATEGIES

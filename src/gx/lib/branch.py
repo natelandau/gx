@@ -66,6 +66,23 @@ def default_branch() -> str:
     raise typer.Exit(1)
 
 
+def is_remote_ref(ref: str) -> bool:
+    """Report whether a ref is qualified by a configured remote (e.g. origin/main).
+
+    Distinguishes a remote-tracking ref from a local branch that merely contains
+    a slash, like ``feat/123``. Callers use it to decide whether a ref needs a
+    fetch and whether a staleness check applies.
+
+    Args:
+        ref: The ref name to test.
+    """
+    if "/" not in ref:
+        return False
+    prefix = ref.split("/", 1)[0]
+    result = git("remote")
+    return result.ok and prefix in result.stdout.splitlines()
+
+
 def has_commits() -> bool:
     """Report whether the repository has at least one commit.
 

@@ -11,6 +11,8 @@ from nclutils import pp
 
 from gx.constants import CONFIG_DIR
 
+VALID_STRATEGIES: frozenset[str] = frozenset({"ask", "rebase", "merge", "ff-only"})
+
 
 @dataclass(frozen=True)
 class GxConfig:
@@ -27,6 +29,7 @@ class GxConfig:
     )
     remote_name: str = "origin"
     nerd_font: bool = True
+    integrate_strategy: str = "ask"
 
 
 def _load_toml() -> dict:
@@ -87,6 +90,26 @@ def _extract_bool(table: dict, key: str, config_path: str) -> bool | None:
     return None
 
 
+def _valid_strategy_or_warn(value: str, source: str, action: str) -> str | None:
+    """Return value if it names a valid reconcile strategy, else warn and drop it.
+
+    Shared by the TOML and env-var readers so the two paths can never accept or
+    reject different values.
+
+    Args:
+        value: The raw strategy string.
+        source: Where the value came from, for the warning (e.g. "GX_INTEGRATE_STRATEGY").
+        action: The verb describing the fallback (e.g. "Skipping", "Ignoring").
+
+    Returns:
+        The value if valid, otherwise None.
+    """
+    if value in VALID_STRATEGIES:
+        return value
+    pp.warning(f"{source} must be one of {sorted(VALID_STRATEGIES)}. {action}.")
+    return None
+
+
 def _extract_toml_values(data: dict) -> dict:
     """Extract and validate known config values from parsed TOML data.
 
@@ -126,6 +149,14 @@ def _extract_toml_values(data: dict) -> dict:
     ):
         values["nerd_font"] = nerd_font
 
+    integrate = data.get("integrate", {})
+    if isinstance(integrate, dict) and (
+        strategy := _extract_str(integrate, "strategy", "integrate.strategy")
+    ):
+        valid = _valid_strategy_or_warn(strategy, "Config: integrate.strategy", "Skipping")
+        if valid is not None:
+            values["integrate_strategy"] = valid
+
     return values
 
 
@@ -153,6 +184,11 @@ def _load_env_overrides() -> dict:
     # Any value other than an explicit falsy token enables nerd fonts.
     if (val := os.environ.get("GX_NERD_FONT")) is not None:
         overrides["nerd_font"] = val.strip().lower() not in {"0", "false", "no", "off", ""}
+
+    if val := os.environ.get("GX_INTEGRATE_STRATEGY"):
+        valid = _valid_strategy_or_warn(val, "GX_INTEGRATE_STRATEGY", "Ignoring")
+        if valid is not None:
+            overrides["integrate_strategy"] = val
 
     return overrides
 
