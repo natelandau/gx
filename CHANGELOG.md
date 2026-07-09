@@ -1,3 +1,13 @@
+## v0.10.0 (2026-07-09)
+
+### Feat
+
+- **integrate**: reconcile diverged branches via rebase or merge (#22)
+
+### Fix
+
+- **clean**: update nclutils to fix error cleaning worktrees
+
 ## v0.9.2 (2026-06-22)
 
 ### Fix
