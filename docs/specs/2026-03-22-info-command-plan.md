@@ -93,6 +93,7 @@ Move these from `status.py` to `branch.py`:
 In `branch.py`, add needed imports at top:
 ```python
 from dataclasses import dataclass
+
 # Under TYPE_CHECKING:
 from pathlib import Path
 ```
@@ -350,8 +351,8 @@ def render_branch_panel(rows: list[BranchRow]) -> Panel | None:
         return None
 
     table = Table.grid(padding=(0, 2))
-    table.add_column(justify="left")   # marker + name
-    table.add_column(justify="left")   # tracking
+    table.add_column(justify="left")  # marker + name
+    table.add_column(justify="left")  # tracking
     table.add_column(justify="right")  # ahead/behind
     table.add_column(justify="right")  # files
     table.add_column(justify="right")  # stashes
@@ -700,7 +701,9 @@ class TestRemoteToUrl:
 
     def test_ssh_protocol(self):
         """Verify ssh:// protocol format converted."""
-        assert _remote_to_url("ssh://git@github.com/user/repo.git") == "https://github.com/user/repo"
+        assert (
+            _remote_to_url("ssh://git@github.com/user/repo.git") == "https://github.com/user/repo"
+        )
 
     def test_ssh_with_port(self):
         """Verify ssh:// with port strips port number."""
@@ -960,12 +963,8 @@ class TestGithubPanel:
             stdout='{"description":"A tool","visibility":"PUBLIC","stargazerCount":42,"isFork":false,"parent":null}',
             stderr="",
         )
-        mocker.patch(
-            "gx.commands.info._gh_pr_count", return_value=2
-        )
-        mocker.patch(
-            "gx.commands.info._gh_issue_count", return_value=5
-        )
+        mocker.patch("gx.commands.info._gh_pr_count", return_value=2)
+        mocker.patch("gx.commands.info._gh_issue_count", return_value=5)
         result = _github_panel("git@github.com:user/repo.git")
         assert isinstance(result, Panel)
 
@@ -1137,7 +1136,9 @@ def _github_panel(remote_url: str) -> Panel | None:
         return None
 
     result = gh(
-        "repo", "view", "--json",
+        "repo",
+        "view",
+        "--json",
         "description,visibility,stargazerCount,isFork,parent",
     )
     if not result.success:
@@ -1286,9 +1287,10 @@ class TestInfoCommand:
         """Verify info command runs and produces output."""
         mocker.patch("gx.commands.info.check_git_repo")
         mocker.patch("gx.commands.info.repo_root", return_value=Path("/repo"))
-        mocker.patch("gx.commands.info.git", return_value=GitResult(
-            command="git", returncode=0, stdout="test", stderr=""
-        ))
+        mocker.patch(
+            "gx.commands.info.git",
+            return_value=GitResult(command="git", returncode=0, stdout="test", stderr=""),
+        )
         mocker.patch("gx.commands.info.gh_available", return_value=False)
         mocker.patch("gx.commands.info.list_worktrees", return_value=[])
         mocker.patch("gx.commands.info.collect_branch_data", return_value=[])
@@ -1416,15 +1418,17 @@ def info(
     log = _log_panel()
     worktrees = _worktree_panel(root)
 
-    _compose_dashboard({
-        "repo": repo,
-        "github": github,
-        "branches": branches,
-        "working_tree": working_tree,
-        "stashes": stash,
-        "log": log,
-        "worktrees": worktrees,
-    })
+    _compose_dashboard(
+        {
+            "repo": repo,
+            "github": github,
+            "branches": branches,
+            "working_tree": working_tree,
+            "stashes": stash,
+            "log": log,
+            "worktrees": worktrees,
+        }
+    )
 ```
 
 - [ ] **Step 3: Run tests**

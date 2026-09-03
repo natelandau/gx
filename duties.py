@@ -20,6 +20,8 @@ console = Console()
 PYPROJECT = Path("pyproject.toml")
 PY_SRC_PATHS = (Path(_) for _ in ("src/", "tests/", "duties.py", "scripts/") if Path(_).exists())
 PY_SRC_LIST = tuple(str(_) for _ in PY_SRC_PATHS)
+# ruff formats Python fences in Markdown, so format the same docs the prek ruff-format hook sees
+FORMAT_LIST = (*PY_SRC_LIST, *(_ for _ in ("docs/", "README.md") if Path(_).exists()))
 CI = os.environ.get("CI", "0") in {"1", "true", "yes", ""}
 PROJECT_ROOT = Path(__file__).parent
 VERSION = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
@@ -78,9 +80,9 @@ def ruff(ctx: Context) -> None:
 def format(ctx: Context) -> None:  # noqa: A001
     """Format the code with ruff."""
     ctx.run(
-        tools.ruff.format(*PY_SRC_LIST, check=True, config="pyproject.toml"),
+        tools.ruff.format(*FORMAT_LIST, check=True, config="pyproject.toml"),
         title=pyprefix("code formatting"),
-        command=f"ruff format --config pyproject.toml {' '.join(PY_SRC_LIST)}",
+        command=f"ruff format --config pyproject.toml {' '.join(FORMAT_LIST)}",
     )
 
 

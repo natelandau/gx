@@ -115,30 +115,32 @@ The highlighter is applied globally to the console, so all output (steps, sub-it
 ### Theme
 
 ```python
-THEME = Theme({
-    "step.success": "green",
-    "step.fail": "red",
-    "step.message": "bold default",
-    "step.spinner": "cyan",
-    "sub.pipe": "bright_black",
-    "git.sha": "yellow",
-    "git.type": "cyan",
-    "git.scope": "blue",
-    "git.colon": "default",
-    "git.pr": "magenta",
-    "debug.marker": "cyan",
-    "debug.message": "cyan",
-    "trace.marker": "bright_black",
-    "trace.message": "bright_black",
-    "warning.marker": "yellow",
-    "warning.message": "bold yellow",
-    "warning.detail": "yellow",
-    "error.marker": "bold red",
-    "error.message": "bold red",
-    "error.detail": "red",
-    "dryrun.marker": "bold cyan",
-    "dryrun.message": "bold cyan",
-})
+THEME = Theme(
+    {
+        "step.success": "green",
+        "step.fail": "red",
+        "step.message": "bold default",
+        "step.spinner": "cyan",
+        "sub.pipe": "bright_black",
+        "git.sha": "yellow",
+        "git.type": "cyan",
+        "git.scope": "blue",
+        "git.colon": "default",
+        "git.pr": "magenta",
+        "debug.marker": "cyan",
+        "debug.message": "cyan",
+        "trace.marker": "bright_black",
+        "trace.message": "bright_black",
+        "warning.marker": "yellow",
+        "warning.message": "bold yellow",
+        "warning.detail": "yellow",
+        "error.marker": "bold red",
+        "error.message": "bold red",
+        "error.detail": "red",
+        "dryrun.marker": "bold cyan",
+        "dryrun.message": "bold cyan",
+    }
+)
 ```
 
 ### Command Refactoring

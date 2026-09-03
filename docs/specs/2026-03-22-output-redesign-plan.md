@@ -25,6 +25,7 @@ Add to `tests/unit/test_console.py`:
 ```python
 from gx.lib.console import GitHighlighter
 
+
 class TestGitHighlighter:
     """Tests for GitHighlighter regex patterns."""
 
@@ -78,6 +79,7 @@ In `src/gx/lib/console.py`, add the import and class at the top, then replace `G
 
 ```python
 from rich.highlighter import RegexHighlighter
+
 
 class GitHighlighter(RegexHighlighter):
     """Highlight git-related tokens in output text."""
@@ -163,6 +165,7 @@ import typer
 
 from gx.lib.console import step
 
+
 class TestStepContextManager:
     """Tests for step() context manager."""
 
@@ -231,6 +234,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
 
 @dataclass
 class Step:
@@ -469,7 +473,9 @@ def unstash(*, stashed: bool) -> None:
         result = git("stash", "pop")
         if not result.success:
             warning("Could not cleanly restore stashed changes")
-            warning("Your pull succeeded, but stashed changes conflict with pulled code", detail=True)
+            warning(
+                "Your pull succeeded, but stashed changes conflict with pulled code", detail=True
+            )
             warning("Run 'git stash show' to see stashed changes", detail=True)
             warning("Run 'git stash pop' to try again, or 'git stash drop' to discard", detail=True)
             raise typer.Exit(1)
@@ -694,7 +700,9 @@ def _create_branch(name: str | None) -> None:
         result = git("checkout", "-b", feat_branch, default)
         if not result.success:
             if "would be overwritten" in result.stderr:
-                error("Checkout failed due to uncommitted changes that conflict with the target branch")
+                error(
+                    "Checkout failed due to uncommitted changes that conflict with the target branch"
+                )
                 error("Commit or stash your changes first, then try again", detail=True)
             else:
                 error(result.stderr or f"Failed to create branch {feat_branch}")

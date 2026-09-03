@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Literal
 
 from nclutils.git import primary_remote
 from nclutils.sh import run_command, which
@@ -56,6 +56,6 @@ def pr_state(branch: str) -> PrState | None:
         return None
 
     if result.stdout in ("MERGED", "OPEN", "CLOSED"):
-        return cast("PrState", result.stdout)
+        return result.stdout
 
     return None
