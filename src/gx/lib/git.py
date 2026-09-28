@@ -22,9 +22,12 @@ import typer
 from nclutils import pp
 from nclutils.git import is_git_installed, is_git_repo
 from nclutils.pp.constants import Verbosity
-from nclutils.sh import CompletedCommand, run_command
+from nclutils.sh import CompletedCommand, ShellCommandTimeoutError, run_command
 
 from gx.constants import READ_ONLY_GIT_COMMANDS, READ_ONLY_GIT_COMPOUND_COMMANDS
+
+# Matches coreutils `timeout`, so a killed command reads as a timeout rather than a git error
+GIT_TIMEOUT_RETURNCODE = 124
 
 _dry_run: bool = False
 
@@ -61,16 +64,18 @@ def _is_read_only(args: tuple[str, ...]) -> bool:
     return False
 
 
-def git(*args: str, timeout: int = 30, cwd: Path | None = None) -> CompletedCommand:
+def git(*args: str, timeout: int | None = 30, cwd: Path | None = None) -> CompletedCommand:
     """Execute a git command and return the nclutils :class:`CompletedCommand`.
 
     With -vv, stream output to the terminal as it arrives instead of buffering.
     In dry-run mode, mutating commands are skipped and a synthetic success result
-    is returned; read-only commands always execute.
+    is returned; read-only commands always execute. A command that exceeds its
+    timeout is killed and returned as a failed result so callers report it like
+    any other git failure.
 
     Args:
         *args: Git subcommand and arguments (e.g., "push", "origin", "main").
-        timeout: Seconds before the command is killed. Defaults to 30.
+        timeout: Seconds before the command is killed. Defaults to 30. None disables the timeout.
         cwd: Working directory for the command. Defaults to None (uses process cwd).
     """
     argv = ("git", *args)
@@ -83,13 +88,27 @@ def git(*args: str, timeout: int = 30, cwd: Path | None = None) -> CompletedComm
 
     stream = pp.get_default().verbosity >= Verbosity.TRACE
 
-    return run_command(
-        list(argv),
-        timeout=timeout,
-        cwd=cwd,
-        check=False,
-        stream=stream,
-    )
+    try:
+        return run_command(
+            list(argv),
+            timeout=timeout,
+            cwd=cwd,
+            check=False,
+            stream=stream,
+        )
+    except ShellCommandTimeoutError as e:
+        partial = e.result
+        stderr = "\n".join(
+            filter(None, [partial.stderr, f"{partial.command_line} timed out after {e.timeout}s"])
+        )
+        return CompletedCommand(
+            argv=partial.argv,
+            returncode=GIT_TIMEOUT_RETURNCODE,
+            stdout=partial.stdout,
+            stderr=stderr,
+            duration=partial.duration,
+            cwd=partial.cwd,
+        )
 
 
 def raise_on_error(result: CompletedCommand) -> CompletedCommand:
