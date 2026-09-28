@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import typer
 from nclutils import pp
 from nclutils.git import current_branch, tracking_branch
@@ -10,8 +12,11 @@ from rich.prompt import Confirm
 from gx.lib.branch import default_branch
 from gx.lib.config import config
 from gx.lib.display import commit_text
-from gx.lib.git import check_git_repo, get_dry_run, git, raise_on_error, set_dry_run
+from gx.lib.git import check_git_repo, get_dry_run, git, set_dry_run
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
+
+if TYPE_CHECKING:
+    from nclutils.sh import CompletedCommand
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
@@ -70,6 +75,96 @@ def _warn_dirty_tree() -> None:
         parts.append(f"{untracked} untracked file{'s' if untracked != 1 else ''}")
 
     pp.warning(f"{' and '.join(parts)} won't be included in this push.")
+
+
+def _push_error_details(stderr: str) -> list[str]:
+    """Reduce git push stderr to the lines that explain the failure.
+
+    Drops blank ``remote:`` padding and the ``To <url>`` line, and strips the
+    ``remote:`` prefix so server messages read as plain text.
+
+    Args:
+        stderr: The stderr captured from ``git push``.
+    """
+    details: list[str] = []
+    for raw in stderr.splitlines():
+        line = raw.strip()
+        if line.startswith("remote:"):
+            line = line.removeprefix("remote:").strip()
+        elif line.startswith("To "):
+            continue
+        if not line:
+            continue
+        details.append(line)
+    return details
+
+
+def _push_failure_hint(
+    result: CompletedCommand, *, branch: str, remote_branch: str, default: str, force: bool
+) -> tuple[str, str | None]:
+    """Classify a failed push and return a headline and an optional next step.
+
+    Args:
+        result: The failed ``git push`` result.
+        branch: The local branch being pushed.
+        remote_branch: The branch being pushed to on the remote.
+        default: The repository's default branch.
+        force: Whether the push used --force-with-lease.
+    """
+    stderr = result.stderr.lower()
+
+    # GH006 is GitHub's protected-branch rejection, GH013 its repository-ruleset rejection
+    if any(s in stderr for s in ("gh006", "gh013", "protected branch", "rule violation")):
+        hint = (
+            "Move your commits to a feature branch with `gx feat --local`, then push it and open a pull request."
+            if branch == default
+            else "Push to a different branch and open a pull request instead."
+        )
+        return (f"The remote does not allow pushing to {remote_branch}.", hint)
+
+    if "stale info" in stderr:
+        return (
+            "The remote branch changed since your last fetch, so --force-with-lease refused to overwrite it.",
+            "Run `git fetch` and review the remote commits before force pushing again.",
+        )
+
+    if "fetch first" in stderr or "non-fast-forward" in stderr:
+        hint = "Run `gx pull` to integrate them, then push again."
+        if not force:
+            hint += " Use `gx push --force` only if you intend to overwrite them."
+        return ("The remote has commits that are not in your local branch.", hint)
+
+    if any(
+        s in stderr
+        for s in ("permission denied", "denied to", "could not read from remote repository")
+    ):
+        return (
+            "Could not authenticate with the remote, or you lack write access.",
+            "Check your SSH key or credentials and your access to the repository.",
+        )
+
+    return ("Push failed.", None)
+
+
+def _report_push_failure(
+    result: CompletedCommand, *, branch: str, remote_branch: str, default: str, force: bool
+) -> None:
+    """Print a classified push error with git's own explanation beneath it.
+
+    Args:
+        result: The failed ``git push`` result.
+        branch: The local branch being pushed.
+        remote_branch: The branch being pushed to on the remote.
+        default: The repository's default branch.
+        force: Whether the push used --force-with-lease.
+    """
+    headline, hint = _push_failure_hint(
+        result, branch=branch, remote_branch=remote_branch, default=default, force=force
+    )
+    details = _push_error_details(result.stderr) or [f"Command failed: {result.command_line}"]
+    if hint:
+        details.append(hint)
+    pp.error(headline, details=details)
 
 
 def _print_summary(
@@ -173,7 +268,16 @@ def push(
     if tags:
         push_args.append("--tags")
 
-    with pp.step(f"Push to {remote}/{remote_branch}"):
-        raise_on_error(git(*push_args, timeout=120))
+    # No timeout: pre-push hooks and large uploads have no predictable duration
+    with pp.step(f"Push to {remote}/{remote_branch}") as s:
+        result = git(*push_args, timeout=None)
+        if not result.ok:
+            s.fail(f"Push to {remote}/{remote_branch} failed")
+
+    if not result.ok:
+        _report_push_failure(
+            result, branch=branch, remote_branch=remote_branch, default=default, force=force
+        )
+        raise typer.Exit(1)
 
     _print_summary(remote_ref_before, remote, remote_branch, default)

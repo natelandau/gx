@@ -4,8 +4,10 @@ import pytest
 import typer
 from nclutils import pp
 from nclutils.pp.constants import Verbosity
+from nclutils.sh import ShellCommandTimeoutError
 
 from gx.lib.git import (
+    GIT_TIMEOUT_RETURNCODE,
     _is_read_only,
     check_git_installed,
     check_git_repo,
@@ -214,6 +216,25 @@ class TestGitFunction:
         # Then run_command receives 30s timeout
         _, kwargs = mock_run.call_args
         assert kwargs["timeout"] == 30
+
+    def test_timeout_returns_failed_result(self, mocker):
+        """Verify a timed-out command becomes a failed result instead of raising."""
+        # Given run_command times out after git wrote some stderr
+        partial = _completed(argv=("git", "push"), returncode=-9, stderr="Enumerating objects")
+        mocker.patch(
+            "gx.lib.git.run_command",
+            autospec=True,
+            side_effect=ShellCommandTimeoutError(result=partial, timeout=5),
+        )
+
+        # When running the command
+        result = git("push", timeout=5)
+
+        # Then the failure carries the partial output and a timeout message
+        assert result.ok is False
+        assert result.returncode == GIT_TIMEOUT_RETURNCODE
+        assert "Enumerating objects" in result.stderr
+        assert "timed out after 5s" in result.stderr
 
     def test_dry_run_skips_mutating_command(self):
         """Verify dry-run returns synthetic result for mutating commands."""

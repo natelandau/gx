@@ -9,6 +9,8 @@ from typer.core import TyperCommand
 from gx.commands.push import (
     _count_dirty_files,
     _print_summary,
+    _push_error_details,
+    _push_failure_hint,
     _resolve_push_target,
     _warn_dirty_tree,
     push,
@@ -16,6 +18,12 @@ from gx.commands.push import (
 from tests.conftest import create_tmp_commit
 
 from .conftest import _fail, _ok
+
+GH_PROTECTED_STDERR = """remote: error: GH006: Protected branch update failed for refs/heads/main.
+remote: error: Changes must be made through a pull request.
+To github.com:user/repo.git
+ ! [remote rejected] main -> main (protected branch hook declined)
+error: failed to push some refs to 'github.com:user/repo.git'"""
 
 
 class TestCountDirtyFiles:
@@ -37,6 +45,107 @@ class TestCountDirtyFiles:
         modified, untracked = _count_dirty_files()
         assert modified == 0
         assert untracked == 0
+
+
+class TestPushErrorDetails:
+    """Tests for the _push_error_details helper function."""
+
+    def test_strips_remote_prefix_and_noise(self):
+        """Verify remote prefixes, blank remote lines, and the To line are removed."""
+        # Given stderr with GitHub's padding lines
+        stderr = "remote: \n" + GH_PROTECTED_STDERR + "\nremote: "
+
+        # When
+        details = _push_error_details(stderr)
+
+        # Then
+        assert details == [
+            "error: GH006: Protected branch update failed for refs/heads/main.",
+            "error: Changes must be made through a pull request.",
+            "! [remote rejected] main -> main (protected branch hook declined)",
+            "error: failed to push some refs to 'github.com:user/repo.git'",
+        ]
+
+    def test_keeps_remote_messages_starting_with_to(self):
+        """Verify a server message beginning with "To" is not mistaken for the To <url> line."""
+        # When
+        details = _push_error_details("remote: To push here, request write access.")
+
+        # Then
+        assert details == ["To push here, request write access."]
+
+
+class TestPushFailureHint:
+    """Tests for the _push_failure_hint helper function."""
+
+    @pytest.mark.parametrize(
+        ("stderr", "headline_part", "hint_part"),
+        [
+            (GH_PROTECTED_STDERR, "does not allow pushing to main", "gx feat --local"),
+            (
+                "remote: error: GH013: Repository rule violations found for refs/heads/main.",
+                "does not allow pushing to main",
+                "gx feat --local",
+            ),
+            (
+                " ! [rejected] main -> main (fetch first)",
+                "commits that are not in your local branch",
+                "gx pull",
+            ),
+            (
+                " ! [rejected] main -> main (stale info)",
+                "--force-with-lease refused",
+                "git fetch",
+            ),
+            (
+                "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.",
+                "Could not authenticate",
+                "SSH key",
+            ),
+        ],
+    )
+    def test_classifies_known_failures(self, stderr, headline_part, hint_part):
+        """Verify known git push failures produce a specific headline and hint."""
+        # When
+        headline, hint = _push_failure_hint(
+            _fail(stderr=stderr), branch="main", remote_branch="main", default="main", force=False
+        )
+
+        # Then
+        assert headline_part in headline
+        assert hint is not None
+        assert hint_part in hint
+
+    def test_protected_feature_branch_suggests_other_branch(self):
+        """Verify a protected non-default branch does not suggest gx feat --local."""
+        # When
+        _, hint = _push_failure_hint(
+            _fail(stderr=GH_PROTECTED_STDERR),
+            branch="release",
+            remote_branch="release",
+            default="main",
+            force=False,
+        )
+
+        # Then
+        assert hint is not None
+        assert "gx feat" not in hint
+        assert "pull request" in hint
+
+    def test_unknown_failure_has_no_hint(self):
+        """Verify an unrecognized failure falls back to a generic headline."""
+        # When
+        headline, hint = _push_failure_hint(
+            _fail(stderr="something odd"),
+            branch="main",
+            remote_branch="main",
+            default="main",
+            force=False,
+        )
+
+        # Then
+        assert headline == "Push failed."
+        assert hint is None
 
 
 class TestResolvePushTarget:
@@ -346,6 +455,63 @@ class TestPushExecution:
         # Then
         captured = capsys.readouterr()
         assert "rejected" in captured.err
+
+    def test_protected_branch_rejection_explains_next_step(
+        self,
+        mocker,
+        mock_push_check_git_repo,
+        mock_push_current_branch,
+        mock_push_default_branch,
+        mock_push_tracking_branch,
+        mock_push_git,
+        capsys,
+    ):
+        """Verify a protected-branch rejection prints the reason and a next step."""
+        # Given pushing the default branch to a protected remote
+        mocker.patch("gx.commands.push._count_dirty_files", autospec=True, return_value=(0, 0))
+        mock_push_current_branch.return_value = "main"
+        mock_push_tracking_branch.return_value = ("origin", "main")
+        mock_push_git.side_effect = [
+            _ok(stdout="abc123"),  # rev-parse remote ref
+            _fail(stderr=GH_PROTECTED_STDERR),  # push rejected
+        ]
+
+        # When
+        ctx = typer.Context(TyperCommand("push"))
+        with pytest.raises(typer.Exit) as exc_info:
+            push(ctx=ctx, verbose=0, dry_run=False, force=True, tags=False)
+
+        # Then
+        assert exc_info.value.exit_code == 1
+        captured = capsys.readouterr()
+        assert "does not allow pushing to main" in captured.err
+        assert "GH006" in captured.err
+        assert "gx feat --local" in captured.err
+
+    def test_push_has_no_timeout(
+        self,
+        mocker,
+        mock_push_check_git_repo,
+        mock_push_current_branch,
+        mock_push_default_branch,
+        mock_push_tracking_branch,
+        mock_push_git,
+    ):
+        """Verify git push runs without a timeout so slow pre-push hooks are not killed."""
+        # Given
+        mocker.patch("gx.commands.push._count_dirty_files", autospec=True, return_value=(0, 0))
+        mock_push_git.side_effect = [
+            _ok(stdout="abc123"),  # rev-parse remote ref
+            _ok(),  # push
+            _ok(stdout=""),  # log (summary)
+        ]
+
+        # When
+        ctx = typer.Context(TyperCommand("push"))
+        push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
+
+        # Then
+        assert mock_push_git.call_args_list[1].kwargs["timeout"] is None
 
     def test_push_first_time_no_remote_ref(
         self,
