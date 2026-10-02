@@ -101,7 +101,9 @@ def colorize_graph_line(line: str) -> Text:
 
 def _run_graph_mode(count: int) -> None:
     """Execute graph passthrough rendering mode."""
-    result = raise_on_error(git("log", "--graph", f"-n{count}", f"--format={_GRAPH_FORMAT}"))
+    result = raise_on_error(
+        git("log", "--graph", "--all", f"-n{count}", f"--format={_GRAPH_FORMAT}")
+    )
 
     if not result.stdout:
         pp.warning("No commits found.")
@@ -136,7 +138,7 @@ def log(
       gx log                Show last 15 commits
       gx log -c 30          Show last 30 commits
       gx log --full         Include commit bodies
-      gx log --graph        Show branch graph
+      gx log --graph        Show graph of all branches
     """
     if verbose:
         pp.configure(verbosity=verbose)
