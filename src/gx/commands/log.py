@@ -8,6 +8,7 @@ import typer
 from nclutils import pp
 from rich.text import Text
 
+from gx.constants import LOG_ALL_REFS_ARGS
 from gx.lib.git import check_git_repo, git, raise_on_error, set_dry_run
 from gx.lib.log_panel import LogPanel
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
@@ -101,7 +102,9 @@ def colorize_graph_line(line: str) -> Text:
 
 def _run_graph_mode(count: int) -> None:
     """Execute graph passthrough rendering mode."""
-    result = raise_on_error(git("log", "--graph", f"-n{count}", f"--format={_GRAPH_FORMAT}"))
+    result = raise_on_error(
+        git("log", "--graph", *LOG_ALL_REFS_ARGS, f"-n{count}", f"--format={_GRAPH_FORMAT}")
+    )
 
     if not result.stdout:
         pp.warning("No commits found.")
@@ -136,7 +139,7 @@ def log(
       gx log                Show last 15 commits
       gx log -c 30          Show last 30 commits
       gx log --full         Include commit bodies
-      gx log --graph        Show branch graph
+      gx log --graph        Show graph of all branches
     """
     if verbose:
         pp.configure(verbosity=verbose)

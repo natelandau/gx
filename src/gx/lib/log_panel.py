@@ -22,7 +22,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from gx.constants import KNOWN_REMOTE_NAMES
+from gx.constants import KNOWN_REMOTE_NAMES, LOG_ALL_REFS_ARGS
 from gx.lib.config import config
 from gx.lib.git import git
 from gx.lib.github import is_github_remote
@@ -354,7 +354,7 @@ class LogPanel:
             or git fails.
         """
         fmt = _FULL_FORMAT if self.show_body else _DEFAULT_FORMAT
-        result = git("log", "--all", f"-n{self.count}", f"--format={fmt}")
+        result = git("log", *LOG_ALL_REFS_ARGS, f"-n{self.count}", f"--format={fmt}")
         if not result.ok or not result.stdout:
             return None
 

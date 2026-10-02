@@ -1,9 +1,10 @@
 """Integration tests for gx log command."""
 
+import pytest
 from typer.testing import CliRunner
 
 from gx.cli import app
-from tests.conftest import create_tmp_commit
+from tests.conftest import create_tmp_commit, create_tmp_stash, create_tmp_worktree
 
 runner = CliRunner()
 
@@ -47,6 +48,29 @@ class TestLogIntegration:
         # Then
         assert result.exit_code == 0
         assert "*" in result.output
+
+    def test_log_graph_includes_other_branches(self, tmp_git_repo):
+        """Verify --graph shows commits on branches other than HEAD."""
+        # Given
+        worktree = create_tmp_worktree(tmp_git_repo, "feature")
+        create_tmp_commit(worktree, "feature work")
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        assert "feature work" in result.output
+
+    @pytest.mark.parametrize("args", [["log"], ["log", "--graph"]])
+    def test_log_excludes_stash_commits(self, tmp_git_repo, args):
+        """Verify stash WIP and index commits are not shown as history."""
+        # Given
+        create_tmp_stash(tmp_git_repo)
+        # When
+        result = runner.invoke(app, args)
+        # Then
+        assert result.exit_code == 0
+        assert "WIP on" not in result.output
+        assert "index on" not in result.output
 
     def test_log_full_and_graph_mutually_exclusive(self, tmp_git_repo):
         """Verify error when both --full and --graph are passed."""

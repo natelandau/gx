@@ -78,7 +78,7 @@ class TestLogCallback:
         mock_cls.return_value.render.assert_called_once()
 
     def test_graph_invocation(self, mock_log_check_git_repo, mock_log_git):
-        """Verify --graph passes --graph flag to git."""
+        """Verify --graph asks git for a graph across all branches."""
         # Given
         mock_log_git.return_value = _ok(stdout="* 9c96da2 3 days ago <Nate> bump release")
         # When
@@ -87,6 +87,7 @@ class TestLogCallback:
         # Then
         args = mock_log_git.call_args[0]
         assert "--graph" in args
+        assert "--all" in args
 
     def test_full_and_graph_mutex(self, mock_log_check_git_repo, capsys):
         """Verify error when both --full and --graph are passed."""

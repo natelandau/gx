@@ -70,7 +70,7 @@ Color-coded commit log inside a panel. Includes commits from all branches, with 
 gx log                    # last 15 commits
 gx log -c 30              # last 30 commits
 gx log --full             # include commit bodies
-gx log --graph            # branch/merge ASCII graph
+gx log --graph            # branch/merge graph of all branches
 ```
 
 ### `gx feat`
