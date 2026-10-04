@@ -70,8 +70,11 @@ Color-coded commit log inside a panel. Includes commits from all branches, with 
 gx log                    # last 15 commits
 gx log -c 30              # last 30 commits
 gx log --full             # include commit bodies
-gx log --graph            # branch/merge graph of all branches
+gx log --graph            # branch graph of all branches, long runs folded
+gx log --graph --full     # branch graph with every commit
 ```
+
+The graph reaches back past the point where each local branch leaves the default branch, so you can see which commit every branch and worktree starts from. Long runs of commits with no branch or tag fold into one `… N more commits` line. `-c` sets the least number of commits to show.
 
 ### `gx feat`
 

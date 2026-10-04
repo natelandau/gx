@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import re
-
 import typer
 from nclutils import pp
-from rich.text import Text
 
-from gx.constants import LOG_ALL_REFS_ARGS
-from gx.lib.git import check_git_repo, git, raise_on_error, set_dry_run
+from gx.lib.git import check_git_repo, set_dry_run
+from gx.lib.log_graph import LogGraph
 from gx.lib.log_panel import LogPanel
 from gx.lib.options import DRY_RUN_OPTION, VERBOSE_OPTION
 
@@ -17,14 +14,6 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
 
-
-_GRAPH_FORMAT = "%h %ar <%an> %s%d"
-
-_SHA_RE = re.compile(r"([a-f0-9]{7,})")
-_TIME_RE = re.compile(r"(\d+ \w+ ago)")
-_AUTHOR_RE = re.compile(r"<([^>]+)>")
-_REFS_RE = re.compile(r"\(([^)]+)\)")
-_CONNECTOR_RE = re.compile(r"^[\s*/|\\]+$")
 
 COUNT_OPTION: int = typer.Option(
     15,
@@ -35,7 +24,7 @@ COUNT_OPTION: int = typer.Option(
 FULL_OPTION: bool = typer.Option(
     False,  # noqa: FBT003
     "--full",
-    help="Show full commit bodies.",
+    help="Show full commit bodies, or every commit with --graph.",
 )
 GRAPH_OPTION: bool = typer.Option(
     False,  # noqa: FBT003
@@ -45,74 +34,16 @@ GRAPH_OPTION: bool = typer.Option(
 )
 
 
-def colorize_graph_line(line: str) -> Text:
-    """Apply Rich styling to a single git log --graph output line.
-
-    Commit lines get per-field coloring (SHA, time, author, refs).
-    Connector-only lines (just graph characters) are styled dim.
-
-    Args:
-        line: A single line from `git log --graph` output.
-
-    Returns:
-        A styled Rich Text object representing the line.
-    """
-    if not line:
-        return Text("")
-
-    if _CONNECTOR_RE.match(line):
-        return Text(line, style="dim")
-
-    text = Text()
-    remaining = line
-
-    sha_match = _SHA_RE.search(remaining)
-    if not sha_match:
-        return Text(line)
-
-    text.append(remaining[: sha_match.start()])
-    text.append(sha_match.group(1), style="yellow")
-    remaining = remaining[sha_match.end() :]
-
-    time_match = _TIME_RE.search(remaining)
-    if time_match:
-        text.append(remaining[: time_match.start()])
-        text.append(time_match.group(1), style="green")
-        remaining = remaining[time_match.end() :]
-
-    author_match = _AUTHOR_RE.search(remaining)
-    if author_match:
-        text.append(remaining[: author_match.start()])
-        text.append(author_match.group(1), style="bold blue")
-        remaining = remaining[author_match.end() :]
-
-    refs_match = _REFS_RE.search(remaining)
-    if refs_match:
-        text.append(remaining[: refs_match.start()])
-        text.append("(", style="dim")
-        text.append(refs_match.group(1), style="bold default")
-        text.append(")", style="dim")
-        remaining = remaining[refs_match.end() :]
-
-    if remaining:
-        text.append(remaining)
-
-    return text
-
-
-def _run_graph_mode(count: int) -> None:
-    """Execute graph passthrough rendering mode."""
-    result = raise_on_error(
-        git("log", "--graph", *LOG_ALL_REFS_ARGS, f"-n{count}", f"--format={_GRAPH_FORMAT}")
-    )
-
-    if not result.stdout:
+def _run_graph_mode(count: int, *, fold: bool) -> None:
+    """Execute graph rendering mode."""
+    lines = LogGraph(count=count, fold=fold).render(width=pp.console().width)
+    if not lines:
         pp.warning("No commits found.")
         return
 
-    for line in result.stdout.splitlines():
-        styled = colorize_graph_line(line)
-        pp.console().print(styled)
+    # Wrapped lines would spill into the graph lanes, so long ones are cut instead.
+    for line in lines:
+        pp.console().print(line, no_wrap=True, overflow="ellipsis", crop=True)
 
 
 @app.callback(invoke_without_command=True)
@@ -132,7 +63,8 @@ def log(
 
     - Default: clean grid with aligned columns inside a panel
     - --full: includes commit bodies below each entry
-    - --graph: branch/merge graph with colorized output
+    - --graph: branch graph reaching back to where each local branch forks, with long runs of commits folded
+    - --graph --full: branch graph with every commit shown
 
     [bold]Examples:[/bold]
 
@@ -140,6 +72,7 @@ def log(
       gx log -c 30          Show last 30 commits
       gx log --full         Include commit bodies
       gx log --graph        Show graph of all branches
+      gx log --graph --full Show graph without folding commits
     """
     if verbose:
         pp.configure(verbosity=verbose)
@@ -147,12 +80,8 @@ def log(
         set_dry_run(enabled=True)
     check_git_repo()
 
-    if full and graph:
-        pp.error("--full and --graph are mutually exclusive.")
-        raise typer.Exit(1)
-
     if graph:
-        _run_graph_mode(count)
+        _run_graph_mode(count, fold=not full)
     else:
         panel = LogPanel(count=count, title="Log", show_body=full).render()
         if panel:
