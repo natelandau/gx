@@ -53,6 +53,7 @@ src/gx/
         git.py               # Git subprocess wrapper, GitResult, dry-run
         github.py            # GitHub CLI wrapper (gh)
         info_panels.py       # RepoPanel, GitHubPanel, StashPanel, WorktreePanel classes
+        log_graph.py         # LogGraph class: --graph windowed to branch fork points, folded runs
         log_panel.py         # LogPanel class: git log rendering with inline ref badges
         options.py           # Shared Typer options (VERBOSE_OPTION, DRY_RUN_OPTION)
         stale_analyzer.py    # StaleAnalyzer class: identifies stale branches/worktrees

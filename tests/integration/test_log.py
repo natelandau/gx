@@ -72,13 +72,43 @@ class TestLogIntegration:
         assert "WIP on" not in result.output
         assert "index on" not in result.output
 
-    def test_log_full_and_graph_mutually_exclusive(self, tmp_git_repo):
-        """Verify error when both --full and --graph are passed."""
+    def test_log_graph_reaches_fork_point(self, tmp_git_repo):
+        """Verify --graph shows where a branch forks even past the commit count."""
+        # Given a branch forked from "base" with more commits than -c shows
+        create_tmp_commit(tmp_git_repo, "base")
+        worktree = create_tmp_worktree(tmp_git_repo, "feature")
+        for i in range(10):
+            create_tmp_commit(worktree, f"feature {i}")
+        create_tmp_commit(tmp_git_repo, "main after fork")
         # When
-        result = runner.invoke(app, ["log", "--full", "--graph"])
+        result = runner.invoke(app, ["log", "--graph", "-c", "3"])
         # Then
-        assert result.exit_code == 1
-        assert (
-            "mutually exclusive" in result.output.lower()
-            or "mutually exclusive" in (result.stderr or "").lower()
-        )
+        assert result.exit_code == 0
+        assert "|/" in result.output
+        assert "base" in result.output
+        assert "main after fork" in result.output
+        assert "feature 9" in result.output
+        assert "more commits" in result.output
+
+    def test_log_graph_full_shows_every_commit(self, tmp_git_repo):
+        """Verify --graph --full disables folding."""
+        # Given
+        worktree = create_tmp_worktree(tmp_git_repo, "feature")
+        for i in range(10):
+            create_tmp_commit(worktree, f"feature {i}")
+        create_tmp_commit(tmp_git_repo, "main after fork")
+        # When
+        result = runner.invoke(app, ["log", "--graph", "--full"])
+        # Then
+        assert result.exit_code == 0
+        assert "more commits" not in result.output
+        for i in range(10):
+            assert f"feature {i}" in result.output
+
+    def test_log_graph_empty_repo(self, empty_git_repo):
+        """Verify --graph in a repo with no commits warns instead of crashing."""
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        assert "No commits found" in result.output
