@@ -38,17 +38,14 @@ if TYPE_CHECKING:
 _STATUS_CODE_MIN_LEN = 2
 
 
-def default_branch() -> str:
-    """Detect the repository's default branch.
+def find_default_branch() -> str | None:
+    """Detect the repository's default branch, or None when it cannot be found.
 
     Ask nclutils for the remote-advertised default first, then fall back to a
     local main/master probe so repos without ``origin/HEAD`` set still work.
     Finally fall back to the branch HEAD points at, which covers brand-new repos
     with an unborn HEAD (no commits yet, so ``refs/heads/main`` does not exist)
     and repos whose default branch has a non-standard name.
-
-    Raises:
-        typer.Exit: If no default branch can be determined.
     """
     name = nc_default_branch()
     if name:
@@ -58,9 +55,18 @@ def default_branch() -> str:
         if branch_exists(candidate):
             return candidate
 
-    cur = current_branch()
-    if cur:
-        return cur
+    return current_branch()
+
+
+def default_branch() -> str:
+    """Detect the repository's default branch, as :func:`find_default_branch` does.
+
+    Raises:
+        typer.Exit: If no default branch can be determined.
+    """
+    name = find_default_branch()
+    if name:
+        return name
 
     pp.error("Could not determine default branch.")
     raise typer.Exit(1)

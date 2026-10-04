@@ -4,7 +4,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gx.cli import app
-from tests.conftest import create_tmp_commit, create_tmp_stash, create_tmp_worktree
+from tests.conftest import _run_git, create_tmp_commit, create_tmp_stash, create_tmp_worktree
 
 runner = CliRunner()
 
@@ -104,6 +104,43 @@ class TestLogIntegration:
         assert "more commits" not in result.output
         for i in range(10):
             assert f"feature {i}" in result.output
+
+    def test_log_graph_detached_head_without_default_branch(self, tmp_git_repo):
+        """Verify --graph works when no default branch can be detected."""
+        # Given a detached HEAD in a repo whose only branch has a non-standard name
+        _run_git("remote", "remove", "origin", cwd=tmp_git_repo)
+        _run_git("branch", "-m", "trunk", cwd=tmp_git_repo)
+        create_tmp_commit(tmp_git_repo, "second")
+        _run_git("checkout", "--detach", "HEAD~1", cwd=tmp_git_repo)
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        assert "second" in result.output
+
+    def test_log_graph_bounds_older_unrelated_history(self, tmp_git_repo, monkeypatch):
+        """Verify an older orphan history does not show in full in the fork window."""
+        # Given an orphan branch older than a feature branch that forks far back
+        home = _run_git("branch", "--show-current", cwd=tmp_git_repo).stdout.strip()
+        _run_git("checkout", "--orphan", "pages", cwd=tmp_git_repo)
+        _run_git("rm", "-rq", "--cached", ".", cwd=tmp_git_repo)
+        for i in range(5):
+            monkeypatch.setenv("GIT_COMMITTER_DATE", f"@{1_000_000_000 + i}")
+            create_tmp_commit(tmp_git_repo, f"orphan {i}")
+        monkeypatch.delenv("GIT_COMMITTER_DATE")
+        _run_git("checkout", "-f", home, cwd=tmp_git_repo)
+        for i in range(4):
+            create_tmp_commit(tmp_git_repo, f"base {i}")
+        worktree = create_tmp_worktree(tmp_git_repo, "feature")
+        create_tmp_commit(worktree, "feature work")
+        for i in range(20):
+            create_tmp_commit(tmp_git_repo, f"main {i}")
+        # When
+        result = runner.invoke(app, ["log", "--graph", "--full", "-c", "3"])
+        # Then
+        assert result.exit_code == 0
+        assert "feature work" in result.output
+        assert "orphan" not in result.output
 
     def test_log_graph_empty_repo(self, empty_git_repo):
         """Verify --graph in a repo with no commits warns instead of crashing."""

@@ -20,7 +20,7 @@ from nclutils.git import all_local_branches
 from rich.text import Text
 
 from gx.constants import LOG_ALL_REFS_ARGS
-from gx.lib.branch import default_branch, has_commits
+from gx.lib.branch import find_default_branch, has_commits
 from gx.lib.git import git, raise_on_error
 
 _FIELD_SEP = "\x1f"
@@ -250,7 +250,10 @@ class LogGraph:
         if not has_commits():
             return frozenset()
 
-        target = default_branch()
+        target = find_default_branch()
+        if not target:
+            return frozenset()
+
         points: set[str] = set()
         for branch in all_local_branches():
             if branch == target:
@@ -270,13 +273,16 @@ class LogGraph:
         if not oldest.ok or not oldest.stdout:
             return newest
 
-        stop = git("rev-parse", "--verify", "--quiet", f"{oldest.stdout}~{FORK_CONTEXT}")
-        if not stop.ok:
+        stop = git("log", "-1", "--format=%H %ct", f"{oldest.stdout}~{FORK_CONTEXT}")
+        if not stop.ok or not stop.stdout:
             # History below the oldest fork is shorter than the context, so show it all.
             return []
 
-        exclusion = f"^{stop.stdout}"
-        in_window = git("rev-list", "--count", *LOG_ALL_REFS_ARGS, exclusion)
+        stop_sha, stop_time = stop.stdout.split()
+        # `^stop` cannot bound histories unrelated to it (an orphan gh-pages
+        # branch), so the date limit keeps those from showing in full.
+        window = [f"^{stop_sha}", f"--since=@{stop_time}"]
+        in_window = git("rev-list", "--count", *LOG_ALL_REFS_ARGS, *window)
         if in_window.ok and in_window.stdout.isdigit() and int(in_window.stdout) < self.count:
             return newest
-        return [exclusion]
+        return window
