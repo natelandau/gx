@@ -1,3 +1,11 @@
+## v0.10.1 (2026-10-03)
+
+### Fix
+
+- **log**: show where each branch forks in the --graph view (#31)
+- **log**: show all branches in the --graph view (#30)
+- **push**: explain rejected pushes instead of crashing (#28)
+
 ## v0.10.0 (2026-07-09)
 
 ### Feat
