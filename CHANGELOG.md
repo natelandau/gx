@@ -1,3 +1,13 @@
+## v0.11.0 (2026-10-07)
+
+### Feat
+
+- **log**: cap the graph at an explicit commit count
+- **log**: show worktrees, uncommitted changes, and stale hints
+- **log**: show branch badges and sync state in the graph
+- **log**: color the branch graph by branch and add a legend
+- **log**: draw the branch graph with connected lanes
+
 ## v0.10.1 (2026-10-03)
 
 ### Fix
