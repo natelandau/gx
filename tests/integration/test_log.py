@@ -35,6 +35,40 @@ class TestLogIntegration:
         assert result.exit_code == 0
         assert "init" in result.output
 
+    @staticmethod
+    def _old_fork(repo: Path) -> None:
+        """Fork a branch from the root, then add six commits to main."""
+        create_tmp_branch(repo, "old")
+        create_tmp_commit(repo, "old work")
+        checkout_tmp_branch(repo, "main")
+        for i in range(6):
+            create_tmp_commit(repo, f"cap-{i}")
+
+    def test_log_graph_explicit_count_caps_commits(self, tmp_git_repo):
+        """Verify an explicit -c caps the graph even when a fork point lies further back."""
+        # Given
+        self._old_fork(tmp_git_repo)
+        # When
+        result = runner.invoke(app, ["log", "-g", "-c", "5"])
+        # Then
+        assert result.exit_code == 0
+        shown = [line for line in result.output.splitlines() if "cap-" in line]
+        assert len(shown) == 5
+        assert all(any(f"cap-{i}" in line for i in (1, 2, 3, 4, 5)) for line in shown)
+        assert "old work" not in result.output
+        assert "more commits" not in result.output
+
+    def test_log_graph_default_count_reaches_fork_point(self, tmp_git_repo):
+        """Verify the graph without -c still reaches back to every branch's fork point."""
+        # Given
+        self._old_fork(tmp_git_repo)
+        # When
+        result = runner.invoke(app, ["log", "-g", "--full"])
+        # Then
+        assert result.exit_code == 0
+        assert sum("cap-" in line for line in result.output.splitlines()) == 6
+        assert "old work" in result.output
+
     def test_log_count_flag(self, tmp_git_repo):
         """Verify -c flag limits number of commits shown."""
         # Given
@@ -147,7 +181,7 @@ class TestLogIntegration:
         assert "WIP on" not in result.output
         assert "index on" not in result.output
 
-    def test_log_graph_reaches_fork_point(self, tmp_git_repo):
+    def test_log_graph_reaches_fork_point(self, tmp_git_repo, monkeypatch):
         """Verify --graph shows where a branch forks even past the commit count."""
         # Given a branch forked from "base" with more commits than -c shows
         create_tmp_commit(tmp_git_repo, "base")
@@ -156,7 +190,8 @@ class TestLogIntegration:
             create_tmp_commit(worktree, f"feature {i}")
         create_tmp_commit(tmp_git_repo, "main after fork")
         # When
-        result = runner.invoke(app, ["log", "--graph", "-c", "3"])
+        monkeypatch.setattr("gx.commands.log.DEFAULT_COUNT", 3)
+        result = runner.invoke(app, ["log", "--graph"])
         # Then
         assert result.exit_code == 0
         assert "─╯" in result.output
@@ -211,7 +246,8 @@ class TestLogIntegration:
         for i in range(20):
             create_tmp_commit(tmp_git_repo, f"main {i}")
         # When
-        result = runner.invoke(app, ["log", "--graph", "--full", "-c", "3"])
+        monkeypatch.setattr("gx.commands.log.DEFAULT_COUNT", 3)
+        result = runner.invoke(app, ["log", "--graph", "--full"])
         # Then
         assert result.exit_code == 0
         assert "feature work" in result.output
@@ -234,14 +270,15 @@ class TestLogIntegration:
         worktree = create_tmp_worktree(tmp_git_repo, "feature")
         create_tmp_commit(worktree, "feature work")
         # When
-        result = runner.invoke(app, ["log", "--graph", "--full", "-c", "3"])
+        monkeypatch.setattr("gx.commands.log.DEFAULT_COUNT", 3)
+        result = runner.invoke(app, ["log", "--graph", "--full"])
         # Then
         assert result.exit_code == 0
         assert "merge old" in result.output
         assert "old work 0" in result.output
         assert "old work 1" in result.output
 
-    def test_log_graph_shows_recent_unrelated_history(self, tmp_git_repo):
+    def test_log_graph_shows_recent_unrelated_history(self, tmp_git_repo, monkeypatch):
         """Verify an orphan history newer than the fork window still shows."""
         # Given a feature branch and an orphan branch with recent commits
         home = _run_git("branch", "--show-current", cwd=tmp_git_repo).stdout.strip()
@@ -255,7 +292,8 @@ class TestLogIntegration:
         _run_git("checkout", "-f", home, cwd=tmp_git_repo)
         create_tmp_commit(tmp_git_repo, "main after fork")
         # When
-        result = runner.invoke(app, ["log", "--graph", "--full", "-c", "2"])
+        monkeypatch.setattr("gx.commands.log.DEFAULT_COUNT", 2)
+        result = runner.invoke(app, ["log", "--graph", "--full"])
         # Then
         assert result.exit_code == 0
         assert "orphan page" in result.output

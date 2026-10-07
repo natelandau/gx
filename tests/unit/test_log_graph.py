@@ -14,6 +14,7 @@ from nclutils.sh import CompletedCommand
 from rich.console import Console
 from rich.text import Text
 
+from gx.constants import LOG_ALL_REFS_ARGS
 from gx.lib.config import GxConfig
 from gx.lib.graph_layout import (
     ASCII,
@@ -947,6 +948,22 @@ class TestLogGraphRender:
         # Then
         assert any("more commits" in t.plain for t in out)
         assert not any("Other" in t.plain or "Nate" in t.plain for t in out)
+
+
+class TestWindowCap:
+    """An explicit count caps the graph at the newest commits."""
+
+    def test_window_queries_cap_uses_newest_commits_only(self, mocker) -> None:
+        """Verify a capped graph skips the fork-point window and its git queries."""
+        # Given
+        git = mocker.patch("gx.lib.log_graph.git")
+
+        # When
+        queries = LogGraph(count=3, cap=True)._window_queries(frozenset({_sha("a")}))
+
+        # Then
+        assert queries == [[*LOG_ALL_REFS_ARGS, "-n3"]]
+        git.assert_not_called()
 
 
 class TestTrunk:

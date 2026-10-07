@@ -15,11 +15,14 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 app = typer.Typer(rich_markup_mode="rich", context_settings=CONTEXT_SETTINGS)
 
 
-COUNT_OPTION: int = typer.Option(
-    15,
+DEFAULT_COUNT = 15
+
+COUNT_OPTION: int | None = typer.Option(
+    None,
     "--count",
     "-c",
-    help="Number of commits to show.",
+    help=f"Number of commits to show (default {DEFAULT_COUNT}). With --graph, show exactly the newest N commits, unfolded.",
+    show_default=False,
 )
 FULL_OPTION: bool = typer.Option(
     False,  # noqa: FBT003
@@ -34,9 +37,15 @@ GRAPH_OPTION: bool = typer.Option(
 )
 
 
-def _run_graph_mode(count: int, *, fold: bool) -> None:
-    """Execute graph rendering mode."""
-    lines = LogGraph(count=count, fold=fold).render(width=pp.console().width)
+def _run_graph_mode(count: int | None, *, fold: bool) -> None:
+    """Execute graph rendering mode.
+
+    Without an explicit count the graph reaches back to every branch's fork point;
+    an explicit count caps it at the newest commits and shows every one of them.
+    """
+    capped = count is not None
+    graph = LogGraph(count=count or DEFAULT_COUNT, fold=fold and not capped, cap=capped)
+    lines = graph.render(width=pp.console().width)
     if not lines:
         pp.warning("No commits found.")
         return
@@ -49,7 +58,7 @@ def _run_graph_mode(count: int, *, fold: bool) -> None:
 @app.callback(invoke_without_command=True)
 def log(
     ctx: typer.Context,  # noqa: ARG001
-    count: int = COUNT_OPTION,
+    count: int | None = COUNT_OPTION,
     full: bool = FULL_OPTION,  # noqa: FBT001
     graph: bool = GRAPH_OPTION,  # noqa: FBT001
     verbose: int = VERBOSE_OPTION,
@@ -72,6 +81,7 @@ def log(
       gx log -c 30          Show last 30 commits
       gx log --full         Include commit bodies
       gx log --graph        Show graph of all branches
+      gx log --graph -c 20  Show graph of the newest 20 commits, unfolded
       gx log --graph --full Show graph without folding commits
     """
     if verbose:
@@ -83,7 +93,7 @@ def log(
     if graph:
         _run_graph_mode(count, fold=not full)
     else:
-        panel = LogPanel(count=count, title="Log", show_body=full).render()
+        panel = LogPanel(count=count or DEFAULT_COUNT, title="Log", show_body=full).render()
         if panel:
             pp.console().print(panel)
         else:

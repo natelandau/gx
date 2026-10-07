@@ -559,15 +559,19 @@ class LogGraph:
     The window reaches FORK_CONTEXT commits below the oldest point where a
     local branch leaves the default branch. `count` sets a floor: when the fork
     window holds fewer commits, the newest `count` commits are shown instead.
+    With `cap`, `count` is a ceiling instead and only the newest `count` commits
+    are shown, even when that cuts off fork points.
 
     Args:
-        count: Minimum number of commits to include.
+        count: Minimum number of commits to include, or the maximum with `cap`.
         fold: Whether to collapse long runs of plain commits.
+        cap: Whether `count` limits the window instead of setting its floor.
     """
 
-    def __init__(self, count: int = 15, *, fold: bool = True) -> None:
+    def __init__(self, count: int = 15, *, fold: bool = True, cap: bool = False) -> None:
         self.count = count
         self.fold = fold
+        self.cap = cap
 
     def render(self, width: int | None = None) -> list[Text]:
         """Fetch the graph from git and return one styled Text per line.
@@ -725,7 +729,7 @@ class LogGraph:
                 unrelated to the window when any exist.
         """
         newest = [[*LOG_ALL_REFS_ARGS, f"-n{self.count}"]]
-        if not fork_points:
+        if self.cap or not fork_points:
             return newest
 
         oldest = git("merge-base", "--octopus", *fork_points)
