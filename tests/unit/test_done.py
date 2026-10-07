@@ -148,7 +148,7 @@ class TestDoneMode1:
         ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
-        # Then — gh MERGED skips the verification fetch
+        # Then: gh MERGED skips the verification fetch
         calls = [c.args for c in mock_git.call_args_list]
         assert ("fetch", "--prune") not in calls
         assert ("checkout", "main") in calls
@@ -183,7 +183,7 @@ class TestDoneMode1:
             _fail(stderr="not fully merged"),  # branch -D fails
         ]
 
-        # When — should NOT raise
+        # When: should NOT raise
         ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
@@ -363,7 +363,7 @@ class TestDoneVerification:
         ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=True)
 
-        # Then — none of the verification helpers were consulted
+        # Then: none of the verification helpers were consulted
         mock_pr_state.assert_not_called()
         mock_gone.assert_not_called()
         mock_merged.assert_not_called()
@@ -384,7 +384,7 @@ class TestDoneVerification:
         ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
-        # Then — gh was authoritative, so no fetch was needed
+        # Then: gh was authoritative, so no fetch was needed
         calls = [c.args for c in mock_git.call_args_list]
         mock_confirm.assert_not_called()
         assert ("fetch", "--prune") not in calls
@@ -392,7 +392,7 @@ class TestDoneVerification:
 
     def test_pr_open_prompt_decline_aborts(self, mocker, capsys):
         """Verify gh state OPEN with declined prompt aborts before deletion."""
-        # Given gh reports OPEN (no fetch — gh is authoritative) and user declines
+        # Given gh reports OPEN (no fetch, gh is authoritative) and user declines
         self._common_mocks(mocker)
         _patch_verification(mocker, state="OPEN", confirm=False)
         mocker.patch("gx.commands.done.ahead_behind", autospec=True, return_value=(3, 0))
@@ -403,7 +403,7 @@ class TestDoneVerification:
         with pytest.raises(typer.Exit):
             done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
-        # Then — no destructive ops
+        # Then: no destructive ops
         mock_git.assert_not_called()
 
     def test_pr_open_prompt_accept_proceeds(self, mocker):
@@ -424,7 +424,7 @@ class TestDoneVerification:
 
     def test_no_gh_is_gone_proceeds(self, mocker):
         """Verify when gh unavailable but upstream is gone, deletion proceeds without prompt."""
-        # Given pr_state None and is_gone True — fetch runs, then is_gone confirms
+        # Given pr_state None and is_gone True, fetch runs, then is_gone confirms
         self._common_mocks(mocker)
         mock_confirm = _patch_verification(mocker, state=None, is_gone_value=True)
         mock_git = mocker.patch("gx.commands.done.git", autospec=True)
@@ -525,7 +525,7 @@ class TestDoneVerification:
 
     def test_prompt_message_is_platform_agnostic(self, mocker, capsys):
         """Verify the no-signal prompt message does not mention PR state or platform."""
-        # Given gh reports OPEN — verification falls through to prompt
+        # Given gh reports OPEN, verification falls through to prompt
         self._common_mocks(mocker)
         mock_confirm = _patch_verification(mocker, state="OPEN", confirm=True)
         mocker.patch("gx.commands.done.ahead_behind", autospec=True, return_value=(5, 0))
@@ -536,7 +536,7 @@ class TestDoneVerification:
         ctx = typer.Context(TyperCommand("done"))
         done(ctx=ctx, verbose=0, dry_run=False, force=False)
 
-        # Then — message mentions branch, count, and target only
+        # Then: message mentions branch, count, and target only
         prompt_message = mock_confirm.call_args.args[0]
         assert "feature-x" in prompt_message
         assert "5" in prompt_message

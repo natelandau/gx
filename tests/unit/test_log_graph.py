@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 import pytest
 import typer
 from nclutils.sh import CompletedCommand
+from rich.text import Text
 
 from gx.lib.config import GxConfig
 from gx.lib.graph_layout import (
     ASCII,
+    BRANCH_SYMBOLS,
     UNICODE,
+    Cell,
     GraphOrderError,
     LayoutCommit,
     NodeKind,
@@ -23,6 +27,7 @@ from gx.lib.graph_layout import (
     layout,
     row_cells,
 )
+from gx.lib.log_context import BranchRefs, BranchState, LogContext
 from gx.lib.log_graph import (
     FOLD_MIN_RUN,
     CommitRecord,
@@ -35,12 +40,13 @@ from gx.lib.log_graph import (
     is_straight,
     join_blocks,
     parse_commit_line,
+    render_legend,
     render_line,
     short_age,
 )
 
 if TYPE_CHECKING:
-    from rich.text import Text
+    from collections.abc import Mapping
 
 NOW = 1_000_000
 
@@ -96,6 +102,40 @@ def _chain(names: str, refs: dict[str, str] | None = None) -> list[CommitRecord]
         _record(n, (names[i + 1] if i + 1 < len(names) else "z",), refs.get(n, ""))
         for i, n in enumerate(names)
     ]
+
+
+def _context(
+    owners: Mapping[str, str] | None = None,
+    *,
+    current: str | None = None,
+    head_reachable: frozenset[str] | None = None,
+    parents: Mapping[str, tuple[str, ...]] | None = None,
+    everything_reachable: bool = True,
+) -> LogContext:
+    """Build a context with `main` as the colorless default and `feat` colored cyan."""
+    owners = owners or {}
+    parents = parents or {}
+    if head_reachable is None:
+        head_reachable = (
+            frozenset(parents) | frozenset(owners) | {_sha("a")}
+            if everything_reachable
+            else frozenset()
+        )
+    return LogContext(
+        default="main",
+        current=current,
+        branches={
+            "main": BranchState(
+                name="main", color="", is_current=current == "main", is_default=True
+            ),
+            "feat": BranchState(
+                name="feat", color="cyan", is_current=current == "feat", is_default=False
+            ),
+        },
+        owners=owners,
+        head_reachable=head_reachable,
+        parents=parents,
+    )
 
 
 class TestParseCommitLine:
@@ -194,7 +234,7 @@ class TestFoldEntries:
 
         # Then the middle four are hidden
         assert out[0] == entries[0]
-        assert out[1] == LaneFold(lane=0, lanes=frozenset({0}), hidden=4)
+        assert out[1] == LaneFold(lane=0, lanes=frozenset({0}), hidden=4, row=entries[1].row)
         assert out[2] == entries[-1]
         assert len(out) == 3
 
@@ -253,7 +293,7 @@ class TestFoldEntries:
 
         # Then the feature run folds in lane 1
         folds = [o for o in out if isinstance(o, LaneFold)]
-        assert folds == [LaneFold(lane=1, lanes=frozenset({1}), hidden=4)]
+        assert folds == [LaneFold(lane=1, lanes=frozenset({1}), hidden=4, row=entries[1].row)]
         assert out.index(folds[0]) < out.index(entries[6])
 
     def test_fork_row_breaks_run(self) -> None:
@@ -300,10 +340,10 @@ class TestFoldEntries:
         assert [f.lanes for f in folds] == [frozenset({0}), frozenset({0, 1})]
 
 
-def _style_at(text: Text, index: int) -> str:
-    """Return the style of the innermost span covering a plain-text offset."""
+def _style_at(text: Text, index: int) -> str | None:
+    """Return the style of the innermost span covering a plain-text offset, or None if none does."""
     covering = [str(s.style) for s in text.spans if s.start <= index < s.end]
-    return covering[-1] if covering else ""
+    return covering[-1] if covering else None
 
 
 def _tip(name: str, refs: str = "", *, parents: tuple[str, ...] = ("z",)) -> GraphEntry:
@@ -316,7 +356,7 @@ class TestRenderLine:
     def test_commit_line_layout(self) -> None:
         """An entry draws graph, SHA, subject, and age."""
         # Given / When
-        text = render_line(_tip("a"), UNICODE, now=NOW + 3 * 86400)
+        text = render_line(_tip("a"), UNICODE, context=_context(), now=NOW + 3 * 86400)
 
         # Then
         assert text.plain == "● aaaaaaa commit a  3d"
@@ -324,7 +364,7 @@ class TestRenderLine:
     def test_ascii_charset(self) -> None:
         """The ascii charset draws an asterisk node."""
         # Given / When
-        text = render_line(_tip("a"), ASCII, now=NOW)
+        text = render_line(_tip("a"), ASCII, context=_context(), now=NOW)
 
         # Then
         assert text.plain.startswith("* aaaaaaa")
@@ -332,7 +372,9 @@ class TestRenderLine:
     def test_commit_line_with_refs_and_author(self) -> None:
         """Refs sit in parentheses before the subject and the author follows the age."""
         # Given / When
-        text = render_line(_tip("a", "tag: v1"), UNICODE, now=NOW, show_author=True)
+        text = render_line(
+            _tip("a", "tag: v1"), UNICODE, context=_context(), now=NOW, show_author=True
+        )
 
         # Then
         assert text.plain == "● aaaaaaa (tag: v1) commit a  0s Nate"
@@ -341,7 +383,7 @@ class TestRenderLine:
     def test_head_commit_uses_head_node(self, refs: str) -> None:
         """A HEAD ref draws the HEAD node."""
         # Given / When
-        text = render_line(_tip("a", refs), UNICODE, now=NOW)
+        text = render_line(_tip("a", refs), UNICODE, context=_context(), now=NOW)
 
         # Then
         assert text.plain.startswith("◉ ")
@@ -352,29 +394,17 @@ class TestRenderLine:
         entries = _entries([_record("a", ("b", "c")), _record("b", ("z",)), _record("c", ("z",))])
 
         # When
-        text = render_line(entries[0], UNICODE, now=NOW)
+        text = render_line(entries[0], UNICODE, context=_context(), now=NOW)
 
         # Then
         assert text.plain.startswith("◎")
 
-    def test_graph_cells_are_dim_and_node_is_not(self) -> None:
-        """Line glyphs are dim while the node keeps the default style."""
-        # Given a commit with a lane continuing beside it
-        entries = _entries([_record("a", ("c",)), _record("b", ("c",)), _record("c")])
-        text = render_line(entries[1], UNICODE, now=NOW)
-
-        # When
-        styles = {text.plain[s.start : s.end]: str(s.style) for s in text.spans}
-
-        # Then
-        assert styles["│ "] == "dim"
-        assert "●" not in "".join(k for k, v in styles.items() if v == "dim")
-        assert text.plain[2] == "●"
-
     def test_fold_marker_is_dim(self) -> None:
         """The fold glyph is dim along with the rest of the fold line."""
         # Given / When
-        text = render_line(LaneFold(lane=0, lanes=frozenset({0}), hidden=3), UNICODE, now=NOW)
+        text = render_line(
+            LaneFold(lane=0, lanes=frozenset({0}), hidden=3), UNICODE, context=_context(), now=NOW
+        )
 
         # Then
         assert text.plain.startswith("┊")
@@ -383,16 +413,252 @@ class TestRenderLine:
     def test_fade_marker_is_dim(self) -> None:
         """The fade glyph is dim."""
         # Given a graph whose last commit leaves a lane open
-        text = _graph_text(fade_cells(_tip("a").row) or [], UNICODE)
+        text = _graph_text(fade_cells(_tip("a").row) or [], UNICODE, _context(), node_style="dim")
 
         # Then
         assert text.plain == "╎"
         assert _style_at(text, 0) == "dim"
 
+    def test_line_glyph_takes_pipe_style(self) -> None:
+        """A lane glyph's first character takes its pipe's style, the second its horizontal's."""
+        # Given a feat-owned vertical and a main-owned horizontal
+        vertical = Pipe(_sha("a"), _sha("c"), 0, 0, PipeKind.STARTS)
+        horizontal = Pipe(_sha("a"), _sha("b"), 0, 1, PipeKind.STARTS)
+        context = _context(
+            {_sha("a"): "feat", _sha("b"): "main"},
+            parents={_sha("a"): (_sha("c"), _sha("b"))},
+        )
+
+        # When
+        only_vertical = _graph_text([Cell(up=True, down=True, vertical=vertical)], UNICODE, context)
+        only_horizontal = _graph_text(
+            [Cell(up=True, right=True, horizontal=horizontal)], UNICODE, context
+        )
+        both = _graph_text(
+            [Cell(up=True, right=True, vertical=vertical, horizontal=horizontal)], UNICODE, context
+        )
+
+        # Then the lone vertical colors its glyph and leaves the pad unstyled
+        assert only_vertical.plain == "│"
+        assert _style_at(only_vertical, 0) == "cyan"
+        # And a lone horizontal colors both characters by the main pipe
+        assert only_horizontal.plain == "╰─"
+        assert _style_at(only_horizontal, 0) is None
+        assert _style_at(only_horizontal, 1) is None
+        # And a vertical beside a horizontal keeps the vertical color on the first character only
+        assert _style_at(both, 0) == "cyan"
+        assert _style_at(both, 1) is None
+
+    def test_crossing_uses_vertical_color(self) -> None:
+        """Where a horizontal crosses a vertical, the first character takes the vertical's color."""
+        # Given a crossing whose vertical belongs to feat and horizontal to main
+        vertical = Pipe(_sha("a"), _sha("c"), 0, 0, PipeKind.STARTS)
+        horizontal = Pipe(_sha("a"), _sha("b"), 0, 2, PipeKind.STARTS)
+        context = _context(
+            {_sha("a"): "feat", _sha("b"): "main"},
+            parents={_sha("a"): (_sha("c"), _sha("b"))},
+        )
+        cell = Cell(
+            up=True, down=True, left=True, right=True, vertical=vertical, horizontal=horizontal
+        )
+
+        # When
+        text = _graph_text([cell, Cell(up=True)], UNICODE, context)
+
+        # Then the crossing glyph is feat-colored and its trailing connector is main's (plain)
+        assert text.plain.startswith("│─")
+        assert _style_at(text, 0) == "cyan"
+        assert _style_at(text, 1) is None
+
+        # And with the roles swapped the connector takes the horizontal's color
+        swapped = _context(
+            {_sha("a"): "main", _sha("b"): "feat"},
+            parents={_sha("a"): (_sha("c"), _sha("b"))},
+        )
+        text = _graph_text([cell], UNICODE, swapped)
+        assert _style_at(text, 0) is None
+        assert _style_at(text, 1) == "cyan"
+
+    def test_side_lane_takes_its_pipe_color(self) -> None:
+        """A lane beside the node is colored by its owner: feat literal, main plain, unowned dim."""
+        # Given a feature tip and a main tip sharing a parent, laid out for real
+        entries = _entries(
+            [_record("a", ("c",)), _record("b", ("c",)), _record("c")],
+            frozenset({_sha("b"), _sha("c")}),
+        )
+        parents = {_sha(n): (_sha("c"),) for n in "ab"} | {_sha("c"): ()}
+
+        def side_lane_style(owners: dict[str, str]) -> str:
+            context = _context(owners, parents=parents)
+            text = render_line(entries[1], UNICODE, context=context, now=NOW)
+            lane = text.plain.index("│")
+            return _style_at(text, lane)
+
+        # When / Then
+        assert side_lane_style({_sha("a"): "feat", _sha("b"): "main"}) == "cyan"
+        assert side_lane_style({_sha("a"): "main", _sha("b"): "main"}) is None
+        assert side_lane_style({_sha("b"): "main"}) == "dim"
+
+    def test_fold_pass_through_lane_is_colored(self) -> None:
+        """Another branch's lane running past a fold keeps its color."""
+        # Given a feat tip x beside a six-commit main run that folds, laid out for real
+        records = [
+            _record("x", ("h",)),
+            *[_record(n, (nxt,)) for n, nxt in zip("abcde", "bcdef", strict=True)],
+            _record("f", ("h",)),
+            _record("h"),
+        ]
+        entries = _entries(records, frozenset({_sha("h")}))
+        folds = [o for o in fold_entries(entries, frozenset()) if isinstance(o, LaneFold)]
+        assert len(folds) == 1
+        owners = {_sha("x"): "feat", **{_sha(n): "main" for n in "abcdefh"}}
+        parents = {r.sha: r.parents for r in records}
+        context = _context(owners, parents=parents)
+
+        # When
+        text = render_line(folds[0], UNICODE, context=context, now=NOW)
+
+        # Then the pass-through lane is cyan and the marker is the run's dimmed plain style
+        lane = text.plain.index("│")
+        assert _style_at(text, lane) == "cyan"
+        assert _style_at(text, text.plain.index("┊")) == "dim"
+
+    def test_node_takes_commit_style(self) -> None:
+        """The node character takes the owner's color."""
+        # Given a commit owned by feat
+        entry = _tip("a")
+        context = _context({_sha("a"): "feat"})
+
+        # When
+        text = render_line(entry, UNICODE, context=context, now=NOW)
+
+        # Then
+        assert _style_at(text, 0) == "cyan"
+
+    def test_sha_takes_owner_color(self) -> None:
+        """A feature SHA is colored; default and unowned SHAs are unstyled."""
+        # Given
+        sha_at = len("● ")
+        feat = render_line(_tip("a"), UNICODE, context=_context({_sha("a"): "feat"}), now=NOW)
+        main = render_line(_tip("a"), UNICODE, context=_context({_sha("a"): "main"}), now=NOW)
+        unowned = render_line(_tip("a"), UNICODE, context=_context(), now=NOW)
+
+        # Then
+        assert _style_at(feat, sha_at) == "cyan"
+        assert _style_at(main, sha_at) is None
+        assert _style_at(unowned, sha_at) is None
+
+    def test_age_is_dim(self) -> None:
+        """The age is dim."""
+        # Given / When
+        text = render_line(_tip("a"), UNICODE, context=_context(), now=NOW)
+
+        # Then
+        assert _style_at(text, len(text.plain) - 1) == "dim"
+
+    def test_current_branch_subject_is_bold(self) -> None:
+        """Subjects of commits on the checked-out branch are bold."""
+        # Given
+        subject_at = len("● aaaaaaa ")
+        current = render_line(
+            _tip("a"), UNICODE, context=_context({_sha("a"): "feat"}, current="feat"), now=NOW
+        )
+        other = render_line(
+            _tip("a"), UNICODE, context=_context({_sha("a"): "feat"}, current="main"), now=NOW
+        )
+
+        # Then
+        assert _style_at(current, subject_at) == "bold"
+        assert _style_at(other, subject_at) is None
+
+    def test_unreachable_line_is_dim(self) -> None:
+        """A commit HEAD cannot reach dims its node and text, keeping the node's hue."""
+        # Given a feat commit outside HEAD's reach
+        context = _context({_sha("a"): "feat"}, everything_reachable=False)
+
+        # When
+        text = render_line(_tip("a"), UNICODE, context=context, now=NOW)
+
+        # Then the node keeps its hue and dims
+        assert _style_at(text, 0) == "cyan dim"
+        # And everything after the graph is dim
+        graph_end = len(text.plain.split(" ", 1)[0])
+        for index in range(graph_end, len(text.plain)):
+            covering = [str(sp.style) for sp in text.spans if sp.start <= index < sp.end]
+            assert text.plain[index] == " " or any("dim" in style.split() for style in covering)
+
+    def test_unreachable_line_stays_dim_when_metadata_dropped(self) -> None:
+        """Dropping the metadata for width does not lose the dim on the text."""
+        # Given an unreachable feat commit and a width that fits only the subject
+        context = _context({_sha("a"): "feat"}, everything_reachable=False)
+        width = len("● aaaaaaa commit a")
+
+        # When
+        text = render_line(_tip("a"), UNICODE, context=context, now=NOW, width=width)
+
+        # Then
+        assert text.plain == "● aaaaaaa commit a"
+        for index in range(2, len(text.plain)):
+            covering = [str(sp.style) for sp in text.spans if sp.start <= index < sp.end]
+            assert text.plain[index] == " " or any("dim" in style.split() for style in covering)
+
+    def test_unreachable_row_keeps_reachable_lane_undimmed(self) -> None:
+        """A reachable branch's lane passing an unreachable commit's row is not dimmed."""
+        # Given a reachable feat tip beside an unreachable main commit, laid out for real
+        entries = _entries(
+            [_record("f", ("m",)), _record("u", ("m",)), _record("m")],
+            frozenset({_sha("u"), _sha("m")}),
+        )
+        parents = {_sha("f"): (_sha("m"),), _sha("u"): (_sha("m"),), _sha("m"): ()}
+        owners = {_sha("f"): "feat", _sha("u"): "main", _sha("m"): "main"}
+        context = _context(
+            owners, parents=parents, head_reachable=frozenset({_sha("f"), _sha("m")})
+        )
+
+        # When the unreachable commit's row is rendered
+        text = render_line(entries[1], UNICODE, context=context, now=NOW)
+
+        # Then the passing feat lane keeps its plain color
+        lane = text.plain.index("│")
+        assert _style_at(text, lane) == "cyan"
+        # And the unreachable node and its text are dim
+        assert "dim" in (_style_at(text, text.plain.index("●")) or "").split()
+        assert "dim" in (_style_at(text, text.plain.index("commit u")) or "").split()
+
+    def test_fold_marker_takes_run_color_and_names_branch(self) -> None:
+        """A fold in a feature run is colored like the run and names its branch."""
+        # Given a fold whose first hidden commit belongs to feat
+        row = _tip("a").row
+        context = _context({_sha("a"): "feat"})
+        fold = LaneFold(lane=0, lanes=frozenset({0}), hidden=5, row=row)
+
+        # When
+        text = render_line(fold, UNICODE, context=context, now=NOW)
+
+        # Then
+        assert text.plain.endswith("… 5 more commits on feat")
+        assert _style_at(text, 0) == "cyan dim"
+
+    def test_fold_label_without_owner(self) -> None:
+        """An unowned run has no owner suffix and a dim marker."""
+        # Given / When
+        text = render_line(
+            LaneFold(lane=0, lanes=frozenset({0}), hidden=5, row=_tip("a").row),
+            UNICODE,
+            context=_context(),
+            now=NOW,
+        )
+
+        # Then
+        assert text.plain.endswith("5 more commits")
+        assert _style_at(text, 0) == "dim"
+
     def test_metadata_dropped_before_subject_cut(self) -> None:
         """The age is dropped before the subject is cut."""
         # Given / When
-        text = render_line(_tip("a"), UNICODE, now=NOW, width=len("● aaaaaaa commit a"))
+        text = render_line(
+            _tip("a"), UNICODE, context=_context(), now=NOW, width=len("● aaaaaaa commit a")
+        )
 
         # Then
         assert text.plain == "● aaaaaaa commit a"
@@ -400,7 +666,12 @@ class TestRenderLine:
     def test_fold_line(self) -> None:
         """A fold draws the fold marker in its lane and keeps other lanes."""
         # Given / When
-        text = render_line(LaneFold(lane=1, lanes=frozenset({0, 1}), hidden=5), UNICODE, now=NOW)
+        text = render_line(
+            LaneFold(lane=1, lanes=frozenset({0, 1}), hidden=5),
+            UNICODE,
+            context=_context(),
+            now=NOW,
+        )
 
         # Then
         assert text.plain == "│ ┊ … 5 more commits"
@@ -409,7 +680,9 @@ class TestRenderLine:
     def test_fold_line_singular(self) -> None:
         """One hidden commit uses the singular noun."""
         # Given / When
-        text = render_line(LaneFold(lane=0, lanes=frozenset({0}), hidden=1), UNICODE, now=NOW)
+        text = render_line(
+            LaneFold(lane=0, lanes=frozenset({0}), hidden=1), UNICODE, context=_context(), now=NOW
+        )
 
         # Then
         assert text.plain.endswith("1 more commit")
@@ -423,7 +696,7 @@ class TestRenderLine:
         entries = _entries(records)
 
         # When
-        lines = [render_line(e, UNICODE, now=NOW, width=20) for e in entries]
+        lines = [render_line(e, UNICODE, context=_context(), now=NOW, width=20) for e in entries]
 
         # Then the whole graph is drawn uncut and the metadata is dropped
         for entry, line in zip(entries, lines, strict=True):
@@ -454,11 +727,12 @@ class TestLogGraphRender:
         )
 
     def _patch(self, mocker, lines: list[str], default: str | None = "main") -> None:
-        mocker.patch("gx.lib.log_graph.has_commits", return_value=True)
         mocker.patch("gx.lib.log_graph.find_default_branch", return_value=default)
         mocker.patch.object(LogGraph, "_fork_points", return_value=frozenset())
         mocker.patch.object(LogGraph, "_window_queries", return_value=[[]])
         mocker.patch("gx.lib.log_graph.config", GxConfig(graph_style="unicode"))
+        mocker.patch("gx.lib.log_graph.build_log_context", return_value=_context())
+        mocker.patch("gx.lib.log_graph.render_legend", return_value=None)
         mocker.patch(
             "gx.lib.log_graph.git",
             side_effect=lambda *a, **k: (
@@ -499,6 +773,38 @@ class TestLogGraphRender:
 
         # When / Then
         assert len(LogGraph().render()) == 1
+
+    def test_legend_appended_after_blank_line(self, mocker) -> None:
+        """A legend is separated from the graph by a blank line."""
+        # Given a render whose legend exists
+        self._patch(mocker, [self._line("a", ())])
+        mocker.patch("gx.lib.log_graph.render_legend", return_value=Text("legend"))
+
+        # When
+        out = LogGraph().render()
+
+        # Then the blank line and legend close the output
+        assert [t.plain for t in out[-2:]] == ["", "legend"]
+
+    def test_context_built_once_from_window(self, mocker) -> None:
+        """The branch context is built once from the window's parents and default tip."""
+        # Given a two-commit window with a resolvable default tip
+        self._patch(mocker, [self._line("a", ("b",)), self._line("b", ())])
+        mocker.patch.object(LogGraph, "_resolve_default", return_value=("main", _sha("a")))
+        refs = BranchRefs(tips={"main": _sha("a")}, current="main", head_sha=_sha("a"))
+        mocker.patch("gx.lib.log_graph.read_branch_refs", return_value=refs)
+        build = mocker.patch("gx.lib.log_graph.build_log_context", return_value=_context())
+
+        # When
+        LogGraph().render()
+
+        # Then the refs read once for fork points are reused for the context
+        build.assert_called_once_with(
+            {_sha("a"): (_sha("b"),), _sha("b"): ()},
+            default="main",
+            default_tip=_sha("a"),
+            refs=refs,
+        )
 
     def test_author_hidden_inside_fold_does_not_enable_author_column(self, mocker) -> None:
         """A second author only on folded commits leaves the author column off."""
@@ -609,3 +915,129 @@ class TestJoinBlocks:
 def test_escape_glob(ref: str, expected: str) -> None:
     """Glob metacharacters in ref names are escaped for --exclude."""
     assert _escape_glob(ref) == expected
+
+
+def _legend_context(names: list[str], *, current: str | None = None) -> LogContext:
+    """Build a context with `main` as default and the given branches in a fixed color."""
+    branches = {
+        "main": BranchState(name="main", color="", is_current=current == "main", is_default=True),
+        **{
+            n: BranchState(name=n, color="cyan", is_current=n == current, is_default=False)
+            for n in names
+        },
+    }
+    return LogContext(
+        default="main",
+        current=current,
+        branches=branches,
+        owners={},
+        head_reachable=frozenset(),
+        parents={},
+    )
+
+
+class TestRenderLegend:
+    """Branch color legend under the graph."""
+
+    def test_legend_order_and_marks(self) -> None:
+        """Default first, then current, then the rest by name, with styled marks."""
+        # Given a default, a current branch, and one more branch
+        context = _legend_context(["feat-a", "feat-b"], current="feat-b")
+
+        # When rendered
+        legend = render_legend(context, UNICODE, 80)
+
+        # Then the order, bullets, and current mark match
+        assert legend is not None
+        assert legend.plain == "● main  ● feat-b (current)  ● feat-a"
+        styles = {legend.plain[s.start : s.end]: str(s.style) for s in legend.spans}
+        assert styles["(current)"] == "dim"
+        assert any(
+            str(s.style) == "cyan" and legend.plain[s.start : s.end] == "●" for s in legend.spans
+        )
+
+    @pytest.mark.parametrize("charset", [ASCII, UNICODE, BRANCH_SYMBOLS])
+    def test_legend_bullet(self, charset) -> None:
+        """ASCII uses `*`; every other charset uses a round bullet."""
+        # Given a context with two branches
+        context = _legend_context(["feat"])
+
+        # When rendered
+        legend = render_legend(context, charset, 80)
+
+        # Then the bullet matches the charset
+        assert legend is not None
+        assert legend.plain.startswith("* main" if charset is ASCII else "● main")
+
+    def test_no_legend_for_default_only(self) -> None:
+        """No legend when the default is the only visible branch, or none is visible."""
+        # Given a default-only context and an empty one
+        only_default = _legend_context([])
+        empty = LogContext(
+            default=None,
+            current=None,
+            branches={},
+            owners={},
+            head_reachable=frozenset(),
+            parents={},
+        )
+
+        # When rendered
+        # Then neither has a legend
+        assert render_legend(only_default, UNICODE, 80) is None
+        assert render_legend(empty, UNICODE, 80) is None
+
+    def test_legend_truncates(self) -> None:
+        """A narrow width drops entries and ends with a `+N more` tail."""
+        # Given eight long branch names
+        names = [f"feature-branch-number-{i}" for i in range(8)]
+        context = _legend_context(names)
+
+        # When rendered at width 40
+        legend = render_legend(context, UNICODE, 40)
+
+        # Then it fits, ends with the tail, and the counts add up
+        assert legend is not None
+        assert legend.cell_len <= 40
+        match = re.search(r"\+(\d+) more$", legend.plain)
+        assert match is not None
+        shown = legend.plain.count("●")
+        assert shown + int(match.group(1)) == 9
+
+    def test_legend_keeps_default_when_nothing_fits(self) -> None:
+        """The default branch shows even when the width cannot hold it."""
+        # Given a width smaller than the first entry
+        context = _legend_context(["feature-branch-number-1", "feature-branch-number-2"])
+
+        # When rendered
+        legend = render_legend(context, UNICODE, 4)
+
+        # Then only the default branch shows, without a tail that would not fit
+        assert legend is not None
+        assert legend.plain == "● main"
+
+    def test_legend_shows_all_entries_when_they_fit(self) -> None:
+        """No entry collapses into the tail when every entry fits the width."""
+        # Given a short last entry that fits where a `+1 more` tail would not
+        context = _legend_context(["feature-branch-number-1", "x"])
+        full = render_legend(context, UNICODE, None)
+        assert full is not None
+
+        # When rendered at exactly the full legend width
+        legend = render_legend(context, UNICODE, full.cell_len)
+
+        # Then every entry shows
+        assert legend is not None
+        assert legend.plain == full.plain
+
+    def test_legend_tail_needs_room(self) -> None:
+        """The `+N more` tail appears only when it fits after the first entry."""
+        # Given a width that holds the default and the tail
+        context = _legend_context(["feature-branch-number-1", "feature-branch-number-2"])
+
+        # When rendered
+        legend = render_legend(context, UNICODE, 20)
+
+        # Then the default is followed by the tail
+        assert legend is not None
+        assert legend.plain == "● main  +2 more"

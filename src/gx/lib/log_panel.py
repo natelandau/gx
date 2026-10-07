@@ -378,7 +378,7 @@ class LogPanel:
         """Build the Rich Panel from parsed log entries."""
         head_idx = next(
             (i for i, e in enumerate(entries) if e.is_head),
-            0,  # HEAD not in view — nothing dimmed
+            0,  # HEAD not in view - nothing dimmed
         )
 
         if not self.show_body:

@@ -74,7 +74,7 @@ gx log --graph            # branch graph of all branches, long runs folded
 gx log --graph --full     # branch graph with every commit
 ```
 
-The graph reaches back past the point where each local branch leaves the default branch, so you can see which commit every branch and worktree starts from. Long runs of commits with no branch or tag fold into one `… N more commits` line. `-c` sets the least number of commits to show.
+The graph reaches back past the point where each local branch leaves the default branch, so you can see which commit every branch and worktree starts from. Long runs of commits with no branch or tag fold into one line that names the branch they belong to, such as `… N more commits on main`. `-c` sets the least number of commits to show. Each branch except the default branch gets its own color. A legend under the graph names the branches and marks the branch you have checked out. On a narrow terminal, the legend ends with `+N more`. Commits that your checkout does not contain are dim, and subjects on your current branch are bold.
 
 ### `gx feat`
 

@@ -4,11 +4,11 @@ The basic branch primitives (current_branch, branch_exists, tracking_branch,
 gone_branches, all_local_branches, merged_branches, ahead_behind, stash_counts)
 come from :mod:`nclutils.git`. This module adds gx-specific composites:
 
-- :func:`default_branch` — origin/HEAD with a local main/master fallback and
+- :func:`default_branch` - origin/HEAD with a local main/master fallback and
   typer.Exit on failure.
-- :func:`collect_branch_data` — the per-branch row collection used by the
+- :func:`collect_branch_data` - the per-branch row collection used by the
   status and info dashboards.
-- :func:`count_file_statuses` — bucketing of ``git status --porcelain`` XY codes.
+- :func:`count_file_statuses` - bucketing of ``git status --porcelain`` XY codes.
 """
 
 from __future__ import annotations

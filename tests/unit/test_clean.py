@@ -74,7 +74,7 @@ class TestCleanCommand:
         capsys,
     ):
         """Verify --yes skips the confirmation prompt."""
-        # Given — no worktrees, one gone standalone branch
+        # Given: no worktrees, one gone standalone branch
         mock_clean_git.side_effect = [
             _ok(),  # fetch
             _ok(),  # branch -D feat/1
@@ -131,7 +131,7 @@ class TestCleanCommand:
         # Then
         captured = capsys.readouterr()
         assert "feat/1" in captured.out
-        # branch -D should not have been called — only fetch
+        # branch -D should not have been called, only fetch
         assert mock_clean_git.call_count == 1
 
 
@@ -147,7 +147,7 @@ class TestCleanPartialFailure:
         capsys,
     ):
         """Verify cleanup continues when one worktree removal fails."""
-        # Given — two gone worktrees, first removal fails
+        # Given: two gone worktrees, first removal fails
         wt1 = _worktree(path="/repo/.worktrees/feat/1", branch="feat/1", is_gone=True)
         wt2 = _worktree(path="/repo/.worktrees/feat/2", branch="feat/2", is_gone=True)
         mocker.patch(

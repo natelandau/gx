@@ -167,7 +167,7 @@ class TestStatusEdgeCases:
         ctx = typer.Context(TyperCommand("status"))
         status(ctx=ctx, files=True, branches=False, show_all=False)
 
-        # Then — should show file tree panel, no branch table
+        # Then: should show file tree panel, no branch table
         captured = capsys.readouterr()
         assert "feat/test" in captured.out
         assert "Branch Status" not in captured.out
@@ -193,6 +193,6 @@ class TestStatusEdgeCases:
         ctx = typer.Context(TyperCommand("status"))
         status(ctx=ctx, files=False, branches=True, show_all=False)
 
-        # Then — should show branch table, no file tree
+        # Then: should show branch table, no file tree
         captured = capsys.readouterr()
         assert "Branches" in captured.out

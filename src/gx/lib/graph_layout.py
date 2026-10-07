@@ -458,19 +458,27 @@ def row_cells(row: Row, node: NodeKind) -> list[Cell]:
     return [state.freeze() for state in lanes]
 
 
-def fold_cells(lanes: frozenset[int], lane: int) -> list[Cell]:
+def fold_cells(lanes: frozenset[int], lane: int, pipes: Sequence[Pipe] = ()) -> list[Cell]:
     """Build the marker row for a folded run of commits.
 
     Args:
         lanes: Lanes whose lines continue through the fold.
         lane: Lane that carries the fold marker.
+        pipes: Pipes of the row the fold stands in for, used to record each lane's owner.
 
     Returns:
         list[Cell]: Cells for lanes 0 through the rightmost lane used.
     """
     width = max([lane, *lanes]) + 1
+    # Pipes sharing a target lane keep the last one, the same overwrite order row_cells uses.
+    owners = {p.to_lane: p for p in pipes if p.kind is not PipeKind.TERMINATES}
     return [
-        Cell(up=i in lanes, down=i in lanes, node=NodeKind.FOLD if i == lane else None)
+        Cell(
+            up=i in lanes,
+            down=i in lanes,
+            node=NodeKind.FOLD if i == lane else None,
+            vertical=owners.get(i),
+        )
         for i in range(width)
     ]
 
@@ -484,11 +492,15 @@ def fade_cells(last: Row) -> list[Cell] | None:
     Returns:
         list[Cell] | None: Cells with a fade node on each open lane, or None if all lanes closed.
     """
-    open_lanes = {p.to_lane for p in last.pipes if p.kind is not PipeKind.TERMINATES}
-    if not open_lanes:
+    open_pipes = {p.to_lane: p for p in last.pipes if p.kind is not PipeKind.TERMINATES}
+    if not open_pipes:
         return None
     return [
-        Cell(node=NodeKind.FADE if i in open_lanes else None) for i in range(max(open_lanes) + 1)
+        Cell(
+            node=NodeKind.FADE if i in open_pipes else None,
+            vertical=open_pipes.get(i),
+        )
+        for i in range(max(open_pipes) + 1)
     ]
 
 

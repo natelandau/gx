@@ -412,6 +412,81 @@ def test_fold_cells():
     assert drawn == "│ ┊"
 
 
+def test_fold_cells_record_lane_pipes():
+    """Verify each fold cell records the open pipe that owns its lane."""
+    # Given pipes in lanes 0 and 1
+    p0 = Pipe("a", "x", 0, 0, PipeKind.CONTINUES)
+    p1 = Pipe("b", "y", 1, 1, PipeKind.CONTINUES)
+
+    # When
+    cells = fold_cells(frozenset({0, 1}), 1, [p0, p1])
+
+    # Then
+    assert cells[0].vertical == p0
+    assert cells[1].vertical == p1
+
+
+def test_fold_cells_skip_terminating_pipes():
+    """Verify a terminating pipe is never recorded on a fold cell."""
+    # Given a terminating pipe into lane 0
+    pipe = Pipe("a", "x", 0, 0, PipeKind.TERMINATES)
+
+    # When
+    cells = fold_cells(frozenset({0}), 0, [pipe])
+
+    # Then
+    assert cells[0].vertical is None
+
+
+def test_fold_cells_lane_without_pipe_has_no_vertical():
+    """Verify a fold lane that no pipe targets records no vertical."""
+    # Given a pipe into lane 0 only
+    pipe = Pipe("a", "x", 0, 0, PipeKind.CONTINUES)
+
+    # When a fold spans lanes 0 and 1
+    cells = fold_cells(frozenset({0, 1}), 1, [pipe])
+
+    # Then lane 1 has nothing to record
+    assert cells[0].vertical == pipe
+    assert cells[1].vertical is None
+
+
+def test_fold_cells_last_pipe_wins_when_lanes_collide():
+    """Verify the later pipe owns a lane that several pipes target, as row_cells does."""
+    # Given two pipes into lane 0
+    first = Pipe("a", "x", 0, 0, PipeKind.CONTINUES)
+    second = Pipe("b", "x", 1, 0, PipeKind.CONTINUES)
+
+    # When
+    cells = fold_cells(frozenset({0}), 0, [first, second])
+
+    # Then
+    assert cells[0].vertical == second
+
+
+def test_fold_cells_without_pipes_unchanged():
+    """Verify omitting pipes leaves vertical unset and drawing unchanged."""
+    # When
+    cells = fold_cells(frozenset({0, 1}), 1)
+
+    # Then
+    assert all(c.vertical is None for c in cells)
+    assert draw(cells, UNICODE) == "│ ┊"
+
+
+def test_fade_cells_record_open_pipe():
+    """Verify the fade cell records the open pipe in its lane."""
+    # Given
+    rows = layout([_c("a", "b")])
+
+    # When
+    cells = fade_cells(rows[-1])
+
+    # Then
+    assert cells is not None
+    assert cells[0].vertical == Pipe("a", "b", 0, 0, PipeKind.STARTS)
+
+
 def test_head_node():
     """Verify a HEAD node draws as a distinct glyph in each charset."""
     # Given

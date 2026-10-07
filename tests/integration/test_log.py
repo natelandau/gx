@@ -4,6 +4,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gx.cli import app
+from gx.lib import log_graph
 from gx.lib.config import GxConfig
 from tests.conftest import (
     _run_git,
@@ -23,7 +24,7 @@ class TestLogIntegration:
 
     def test_log_default(self, tmp_git_repo):
         """Verify default log shows commits and exits 0."""
-        # Given — repo has initial commit from fixture
+        # Given - repo has initial commit from fixture
         # When
         result = runner.invoke(app, ["log"])
         # Then
@@ -35,7 +36,7 @@ class TestLogIntegration:
         # Given
         for i in range(5):
             create_tmp_commit(tmp_git_repo, f"commit {i}")
-        # When — use count=4 because --all includes origin/main ref
+        # When - use count=4 because --all includes origin/main ref
         result = runner.invoke(app, ["log", "-c", "4"])
         # Then
         assert result.exit_code == 0
@@ -272,6 +273,87 @@ class TestLogIntegration:
         init_line = next(line for line in result.output.splitlines() if " init" in line)
         assert feature_line.startswith("  ")
         assert not init_line.startswith(" ")
+
+    def test_log_graph_legend_lists_branches(self, tmp_git_repo):
+        """Verify the graph ends with a blank line and a legend naming each branch."""
+        # Given a feature worktree with a commit
+        worktree = create_tmp_worktree(tmp_git_repo, "feature")
+        (worktree / "f.txt").write_text("f")
+        _run_git("add", ".", cwd=worktree)
+        _run_git("commit", "-m", "feature work", cwd=worktree)
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        lines = result.output.rstrip("\n").splitlines()
+        assert lines[-1].startswith(("● main", "* main"))
+        assert "feature" in lines[-1]
+        assert lines[-2] == ""
+
+    def test_log_graph_legend_without_color(self, tmp_git_repo):
+        """Verify the checked-out branch is marked in the legend when color is off."""
+        # Given a feature branch checked out
+        create_tmp_branch(tmp_git_repo, "feature")
+        create_tmp_commit(tmp_git_repo, "feature one")
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        assert "feature (current)" in result.output.rstrip("\n").splitlines()[-1]
+
+    def test_log_graph_detached_head_marks_no_current_branch(self, tmp_git_repo):
+        """Verify a detached HEAD renders and no branch is marked current."""
+        # Given a feature branch and HEAD detached on main
+        create_tmp_branch(tmp_git_repo, "feature")
+        create_tmp_commit(tmp_git_repo, "feature one")
+        checkout_tmp_branch(tmp_git_repo, "main")
+        _run_git("checkout", "--detach", cwd=tmp_git_repo)
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        assert "feature" in result.output.rstrip("\n").splitlines()[-1]
+        assert "(current)" not in result.output
+
+    def test_log_graph_unborn_orphan_checkout_keeps_default(self, tmp_git_repo, mocker):
+        """Verify an unborn orphan checkout still resolves main as the default branch."""
+        # Given a feature branch with a commit and an unborn orphan checkout
+        create_tmp_branch(tmp_git_repo, "feature")
+        create_tmp_commit(tmp_git_repo, "feature one")
+        checkout_tmp_branch(tmp_git_repo, "main")
+        _run_git("checkout", "--orphan", "scratch", cwd=tmp_git_repo)
+        build = mocker.spy(log_graph, "build_log_context")
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then main is the colorless default and leads the legend
+        assert result.exit_code == 0
+        context = build.spy_return
+        assert context.default == "main"
+        assert context.branches["main"].is_default
+        assert context.branches["main"].color == ""
+        assert result.output.rstrip("\n").splitlines()[-1].startswith("● main")
+
+    def test_log_graph_legend_with_remote_default(self, tmp_git_repo):
+        """Verify the legend names the remote-tracking default when local main is gone."""
+        # Given a feature branch checked out and local main deleted
+        _run_git("remote", "set-head", "origin", "main", cwd=tmp_git_repo)
+        create_tmp_branch(tmp_git_repo, "feature")
+        create_tmp_commit(tmp_git_repo, "feature one")
+        _run_git("branch", "-D", "main", cwd=tmp_git_repo)
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        legend = result.output.rstrip("\n").splitlines()[-1]
+        assert legend.startswith("● origin/main")
+
+    def test_log_graph_single_branch_has_no_legend(self, tmp_git_repo):
+        """Verify a repo with only the default branch prints no legend."""
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then the last line is a graph line
+        assert result.exit_code == 0
+        assert "init" in result.output.rstrip("\n").splitlines()[-1]
 
     def test_log_graph_empty_repo(self, empty_git_repo):
         """Verify --graph in a repo with no commits warns instead of crashing."""

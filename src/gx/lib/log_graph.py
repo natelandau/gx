@@ -17,17 +17,18 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import typer
 from nclutils import pp
-from nclutils.git import all_local_branches
 from rich.text import Text
 
 from gx.constants import LOG_ALL_REFS_ARGS
-from gx.lib.branch import find_default_branch, has_commits
+from gx.lib.branch import find_default_branch
 from gx.lib.config import config
 from gx.lib.git import git, raise_on_error
 from gx.lib.graph_layout import (
+    ASCII,
     Cell,
     Charset,
     GraphOrderError,
@@ -41,6 +42,10 @@ from gx.lib.graph_layout import (
     layout,
     row_cells,
 )
+from gx.lib.log_context import DIM, LogContext, build_log_context, dimmed, read_branch_refs
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 _FIELD_SEP = "\x1f"
 _GRAPH_FORMAT = "%H%x1f%P%x1f%h%x1f%at%x1f%an%x1f%D%x1f%s"
@@ -93,6 +98,7 @@ class LaneFold:
     lane: int
     lanes: frozenset[int]
     hidden: int
+    row: Row | None = None
 
 
 GraphLine = GraphEntry | LaneFold
@@ -177,7 +183,14 @@ def fold_entries(entries: list[GraphEntry], keep: frozenset[str]) -> list[GraphE
     def flush() -> None:
         if len(run) >= FOLD_MIN_RUN:
             out.append(run[0])
-            out.append(LaneFold(lane=run[1].row.lane, lanes=run_lanes, hidden=len(run) - 2))
+            out.append(
+                LaneFold(
+                    lane=run[1].row.lane,
+                    lanes=run_lanes,
+                    hidden=len(run) - 2,
+                    row=run[1].row,
+                )
+            )
             out.append(run[-1])
         else:
             out.extend(run)
@@ -219,16 +232,30 @@ def _node_kind(entry: GraphEntry) -> NodeKind:
     return NodeKind.MERGE if entry.row.is_merge else NodeKind.COMMIT
 
 
-def _graph_text(cells: list[Cell], charset: Charset) -> Text:
-    """Draw cells as dim glyphs, leaving commit, merge and HEAD node characters unstyled."""
+def _graph_text(
+    cells: list[Cell], charset: Charset, context: LogContext, *, node_style: str = ""
+) -> Text:
+    """Draw cells with each glyph styled by the branch its pipe belongs to.
+
+    Args:
+        cells: Lane cells of one row.
+        charset: Glyph tables for the lane graph.
+        context: Branch context supplying pipe styles.
+        node_style: Style for node characters, which carry no pipe of their own.
+    """
     text = Text()
     for cell in cells:
         glyph = charset.glyph(cell)
-        if cell.node is None or cell.node in (NodeKind.FOLD, NodeKind.FADE):
-            text.append(glyph, style="dim")
+        horizontal = context.pipe_style(cell.horizontal) if cell.horizontal else ""
+        line_pipe = cell.vertical or cell.horizontal
+        if cell.node is not None:
+            first = node_style
+        elif line_pipe is not None:
+            first = context.pipe_style(line_pipe)
         else:
-            text.append(glyph[0])
-            text.append(glyph[1:], style="dim")
+            first = ""
+        text.append(glyph[0], style=first)
+        text.append(glyph[1:], style=horizontal)
     text.rstrip()
     return text
 
@@ -237,6 +264,7 @@ def render_line(
     line: GraphLine,
     charset: Charset,
     *,
+    context: LogContext,
     now: int,
     width: int | None = None,
     show_author: bool = False,
@@ -250,36 +278,111 @@ def render_line(
     Args:
         line: A laid-out commit or a fold marker.
         charset: Glyph tables for the lane graph.
+        context: Branch context supplying colors and emphasis.
         now: Current time as a Unix timestamp, for the commit age.
         width: Available columns, or None to always include the metadata.
         show_author: Whether to append the author after the age.
     """
     if isinstance(line, LaneFold):
-        text = _graph_text(fold_cells(line.lanes, line.lane), charset)
+        row = line.row
+        node_style = dimmed(context.commit_style(row.sha)) if row else DIM
+        text = _graph_text(
+            fold_cells(line.lanes, line.lane, row.pipes if row else ()),
+            charset,
+            context,
+            node_style=node_style,
+        )
         noun = "commit" if line.hidden == 1 else "commits"
+        owner = context.owner(row.sha) if row else None
+        label = f"… {line.hidden} more {noun}" + (f" on {owner.name}" if owner else "")
         text.append(" ")
-        text.append(f"… {line.hidden} more {noun}", style="dim italic")
+        text.append(label, style="dim italic")
         return text
 
     commit = line.commit
-    text = _graph_text(row_cells(line.row, _node_kind(line)), charset)
+    owner = context.owner(commit.sha)
+    text = _graph_text(
+        row_cells(line.row, _node_kind(line)),
+        charset,
+        context,
+        node_style=context.commit_style(commit.sha),
+    )
+    # Lanes beside the node carry their own dim; only the commit's text dims here.
+    graph_end = len(text.plain)
     text.append(" ")
-    text.append(commit.short_sha, style="yellow")
+    text.append(commit.short_sha, style=context.sha_style(commit.sha))
     text.append(" ")
     if commit.refs:
         text.append("(", style="dim")
         text.append(commit.refs, style="bold magenta")
         text.append(") ", style="dim")
-    text.append(commit.subject)
+    text.append(commit.subject, style="bold" if owner and owner.is_current else "")
 
     meta = Text("  ")
-    meta.append(short_age(commit.timestamp, now), style="green")
+    meta.append(short_age(commit.timestamp, now), style="dim")
     if show_author:
         meta.append(" ")
         meta.append(commit.author, style="blue")
     if width is None or text.cell_len + meta.cell_len <= width:
         text.append_text(meta)
+    if commit.sha not in context.head_reachable:
+        text.stylize("dim", graph_end)
     return text
+
+
+def render_legend(context: LogContext, charset: Charset, width: int | None) -> Text | None:
+    """Build the one-line legend mapping branch colors to names.
+
+    Lists the default branch first, then the current branch, then the rest by name.
+    When the line would exceed `width`, trailing entries collapse into a `+N more` tail
+    when it fits. The first entry always shows.
+
+    Args:
+        context: Branch context supplying the visible branches and their colors.
+        charset: Glyph tables, which decide the bullet character.
+        width: Available columns, or None for no limit.
+
+    Returns:
+        Text | None: The legend, or None when no branch besides the default is visible.
+    """
+    branches = sorted(
+        context.branches.values(), key=lambda b: (not b.is_default, not b.is_current, b.name)
+    )
+    if not any(not b.is_default for b in branches):
+        return None
+
+    bullet = "*" if charset is ASCII else "●"
+    entries: list[Text] = []
+    for branch in branches:
+        entry = Text()
+        entry.append(bullet, style=branch.color)
+        entry.append(f" {branch.name}")
+        if branch.is_current:
+            entry.append(" ")
+            entry.append("(current)", style="dim")
+        entries.append(entry)
+
+    sep = "  "
+    legend = Text()
+    remaining = sum(len(sep) + entry.cell_len for entry in entries[1:])
+    for index, entry in enumerate(entries):
+        # The first entry always shows; print() crops overflow, so it is cut, never wrapped.
+        # A tail is reserved only once the remaining entries cannot all fit.
+        if index and width is not None and legend.cell_len + remaining > width:
+            hidden_after = len(entries) - index - 1
+            used = legend.cell_len + len(sep) + entry.cell_len
+            tail = len(sep) + len(f"+{hidden_after} more") if hidden_after else 0
+            if used + tail > width:
+                more = f"+{len(entries) - index} more"
+                if legend.cell_len + len(sep) + len(more) <= width:
+                    legend.append(sep)
+                    legend.append(more, style="dim")
+                return legend
+        if index:
+            legend.append(sep)
+            remaining -= len(sep) + entry.cell_len
+        legend.append_text(entry)
+    return legend
 
 
 def join_blocks(main: list[CommitRecord], extra: list[CommitRecord]) -> list[CommitRecord]:
@@ -336,9 +439,11 @@ class LogGraph:
         Raises:
             typer.Exit: If git fails.
         """
-        resolved = self._resolve_default(find_default_branch()) if has_commits() else None
+        # The default branch can resolve while HEAD is unborn (an orphan checkout).
+        resolved = self._resolve_default(find_default_branch())
         default, tip = resolved or (None, None)
-        fork_points = self._fork_points(default)
+        refs = read_branch_refs()
+        fork_points = self._fork_points(default, refs.tips)
         blocks = [self._fetch(revs) for revs in self._window_queries(fork_points)]
         commits = join_blocks(*blocks) if len(blocks) > 1 else blocks[0]
         if not commits:
@@ -356,14 +461,22 @@ class LogGraph:
         lines: list[GraphLine] = [*fold_entries(entries, fork_points)] if self.fold else [*entries]
         authors = {line.commit.author for line in lines if isinstance(line, GraphEntry)}
         charset = charset_for(config.graph_style, pp.console().encoding or "")
+        context = build_log_context(
+            {c.sha: c.parents for c in commits}, default=default, default_tip=tip, refs=refs
+        )
         now = int(time.time())
         out = [
-            render_line(line, charset, now=now, width=width, show_author=len(authors) > 1)
+            render_line(
+                line, charset, context=context, now=now, width=width, show_author=len(authors) > 1
+            )
             for line in lines
         ]
         fade = fade_cells(rows[-1])
         if fade is not None:
-            out.append(_graph_text(fade, charset))
+            out.append(_graph_text(fade, charset, context, node_style="dim"))
+        legend = render_legend(context, charset, width)
+        if legend is not None:
+            out.extend([Text(""), legend])
         return out
 
     @staticmethod
@@ -418,13 +531,18 @@ class LogGraph:
         return frozenset(trunk)
 
     @staticmethod
-    def _fork_points(target: str | None) -> frozenset[str]:
-        """Return the full SHA where each local branch leaves the default branch."""
+    def _fork_points(target: str | None, branches: Iterable[str]) -> frozenset[str]:
+        """Return the full SHA where each local branch leaves the default branch.
+
+        Args:
+            target: The default branch ref, or None if there is none.
+            branches: Local branch names.
+        """
         if not target:
             return frozenset()
 
         points: set[str] = set()
-        for branch in all_local_branches():
+        for branch in branches:
             if branch == target:
                 continue
             result = git("merge-base", target, branch)

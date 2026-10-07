@@ -54,6 +54,7 @@ src/gx/
         github.py            # GitHub CLI wrapper (gh)
         graph_layout.py      # Commit-graph lane layout and glyph drawing (charsets, cells)
         info_panels.py       # RepoPanel, GitHubPanel, StashPanel, WorktreePanel classes
+        log_context.py       # Branch ownership, reachability, and colors for the log graph
         log_graph.py         # LogGraph class: --graph built on graph_layout, fork-point window, folds
         log_panel.py         # LogPanel class: git log rendering with inline ref badges
         options.py           # Shared Typer options (VERBOSE_OPTION, DRY_RUN_OPTION)
@@ -71,22 +72,22 @@ src/gx/
 
 ### Console Output
 
-- Output is handled by the external `nclutils` package via its `pp` printer — never call `print()` or instantiate `rich.Console()` directly
+- Output is handled by the external `nclutils` package via its `pp` printer. Never call `print()` or instantiate `rich.Console()` directly
 - Import the printer: `from nclutils import pp`
-    - `pp.step("message")` — context manager: spinner while running, `✓`/`✗` on completion
+    - `pp.step("message")`: context manager that shows a spinner while running and `✓`/`✗` on completion
         - Use `s.sub("text")` inside `with pp.step(...) as s:` to queue sub-items
-    - `pp.success(msg, details=[...])` — terminal success line with optional sub-items
-    - `pp.info(msg)` — informational line
-    - `pp.debug(msg)` — shown with `-v`
-    - `pp.trace(msg)` — shown with `-vv`
-    - `pp.dryrun(msg)` — always shown, prefixed `[dry-run]`
-    - `pp.warning(msg, details=[...])` / `pp.error(msg, details=[...])` — stderr; pass a list for follow-up lines
+    - `pp.success(msg, details=[...])`: terminal success line with optional sub-items
+    - `pp.info(msg)`: informational line
+    - `pp.debug(msg)`: shown with `-v`
+    - `pp.trace(msg)`: shown with `-vv`
+    - `pp.dryrun(msg)`: always shown, prefixed `[dry-run]`
+    - `pp.warning(msg, details=[...])` / `pp.error(msg, details=[...])`: stderr; pass a list for follow-up lines
 - For tables/panels/direct Rich usage: `pp.console().print(...)`
 - Verbosity set via `-v`/`-vv` flags on root command, wired through `pp.configure(verbosity=...)`
 
 ### Git Execution
 
-- Git commands run through `src/gx/lib/git.py` — never call `subprocess` directly
+- Git commands run through `src/gx/lib/git.py`. Never call `subprocess` directly
 - Import: `from gx.lib.git import git, raise_on_error, check_git_installed, check_git_repo, set_dry_run, get_dry_run`
 - `git("push", "origin", "main")` returns an `nclutils` `CompletedCommand`
     - `.ok`: True if returncode == 0
@@ -96,29 +97,29 @@ src/gx/
 - Commands time out after 30 s by default (`timeout=None` disables); a timed-out command returns a failed result
 - Command logging: `debug()` logs the command (visible with `-v`), `trace()` pipes stdout/stderr lines (visible with `-vv`)
 - Dry-run: `--dry-run`/`-n` flag on each subcommand. Mutating commands return synthetic success; read-only commands defined in `READ_ONLY_GIT_COMMANDS` (constants.py) always execute
-- `check_git_installed()` — called once in root CLI callback; verifies git is on PATH
-- `check_git_repo()` — call in each subcommand callback; verifies cwd is a git repo
+- `check_git_installed()`: called once in root CLI callback; verifies git is on PATH
+- `check_git_repo()`: call in each subcommand callback; verifies cwd is a git repo
 
 ### Branch Queries
 
 - Branch queries run through `src/gx/lib/branch.py`
 - Import: `from gx.lib.branch import current_branch, default_branch, has_commits, is_merged, is_gone, is_empty, has_upstream, tracking_branch`
-- `current_branch()` — returns branch name or `None` for detached HEAD
-- `default_branch()` — detects default branch (remote → local main → local master → current branch)
-- `has_commits()` — True if the repo has at least one commit; `False` for an unborn HEAD (brand-new repo). Gate commit-dependent queries (merged/gone/empty, ahead/behind) on it so they don't abort with "malformed object name"
-- `has_upstream()` / `tracking_branch()` — check/get remote tracking info
-- `is_merged(branch, target)` — True if branch is merged into target
-- `is_gone(branch)` — True if upstream was deleted on remote
-- `is_empty(branch, target)` — True if zero commits ahead of target
+- `current_branch()`: returns branch name or `None` for detached HEAD
+- `default_branch()`: detects default branch (remote → local main → local master → current branch)
+- `has_commits()`: True if the repo has at least one commit; `False` for an unborn HEAD (brand-new repo). Gate commit-dependent queries (merged/gone/empty, ahead/behind) on it so they don't abort with "malformed object name"
+- `has_upstream()` / `tracking_branch()`: check/get remote tracking info
+- `is_merged(branch, target)`: True if branch is merged into target
+- `is_gone(branch)`: True if upstream was deleted on remote
+- `is_empty(branch, target)`: True if zero commits ahead of target
 
 ### Worktree Management
 
 - Worktree operations run through `src/gx/lib/worktree.py`
 - Import: `from gx.lib.worktree import list_worktrees, create_worktree, remove_worktree, WorktreeInfo`
-- `list_worktrees()` — returns `list[WorktreeInfo]` enriched with branch status flags
+- `list_worktrees()`: returns `list[WorktreeInfo]` enriched with branch status flags
 - `WorktreeInfo` fields: `path`, `branch`, `commit`, `is_bare`, `is_main`, `is_merged`, `is_gone`, `is_empty`
-- `create_worktree(path, branch)` — creates worktree with new branch
-- `remove_worktree(path)` — removes worktree
+- `create_worktree(path, branch)`: creates worktree with new branch
+- `remove_worktree(path)`: removes worktree
 - `is_main` worktree is never a cleanup candidate
 
 ### Sync and Reconcile

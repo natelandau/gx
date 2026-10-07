@@ -331,7 +331,7 @@ class TestStaleBranches:
         mocker.patch("gx.lib.stale_analyzer.gone_branches", return_value=frozenset({"feat/1"}))
         mocker.patch("gx.lib.stale_analyzer.merged_branches", return_value=frozenset())
 
-        # When — feat/1 is the current branch, so include it in protected
+        # When: feat/1 is the current branch, so include it in protected
         protected_with_current = config.protected_branches | frozenset({"feat/1"})
         analyzer = StaleAnalyzer(protected=protected_with_current)
         _, br_candidates, _ = analyzer.analyze()
