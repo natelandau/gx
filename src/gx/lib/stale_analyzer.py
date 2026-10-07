@@ -26,7 +26,7 @@ from nclutils.git import (
 )
 
 from gx.lib.branch import default_branch, has_commits
-from gx.lib.worktree import list_worktrees
+from gx.lib.worktree import checked_out_branches, list_worktrees, read_worktree_entries
 
 if TYPE_CHECKING:
     from gx.constants import StaleReason
@@ -91,21 +91,33 @@ class StaleAnalyzer:
         if not has_commits():
             return [], [], []
 
-        wt_candidates, wt_skipped = self._find_stale_worktrees()
-        worktree_branch_names = {c.branch for c in wt_candidates} | {c.branch for c in wt_skipped}
-        br_candidates = self._find_stale_branches(worktree_branch_names)
+        target = default_branch()
+        entries = read_worktree_entries()
+        wt_candidates, wt_skipped = self._find_stale_worktrees(target, entries)
+        # Git cannot delete a branch checked out in any worktree, including the main one
+        # and locked ones whose folder is gone, which `list_worktrees` leaves out.
+        worktree_branch_names = (
+            {c.branch for c in wt_candidates}
+            | {c.branch for c in wt_skipped}
+            | checked_out_branches(entries)
+        )
+        br_candidates = self._find_stale_branches(worktree_branch_names, target)
         return wt_candidates, br_candidates, wt_skipped
 
     def _find_stale_worktrees(
-        self,
+        self, target: str, entries: list[dict[str, str]]
     ) -> tuple[list[CleanCandidate], list[CleanCandidate]]:
         """Identify stale worktrees for cleanup.
+
+        Args:
+            target: The default branch that worktree branches are compared against.
+            entries: Worktree registrations read once by `analyze`.
 
         Returns:
             A tuple of (candidates, skipped) where skipped contains dirty worktrees
             when force=False.
         """
-        worktrees = list_worktrees()
+        worktrees = list_worktrees(entries)
         if not worktrees:
             return [], []
 
@@ -113,10 +125,11 @@ class StaleAnalyzer:
         skipped: list[CleanCandidate] = []
 
         for wt in worktrees:
-            if wt.is_main or wt.is_bare or wt.branch is None:
+            # `git worktree remove` refuses a locked worktree, so clean leaves it alone.
+            if wt.is_main or wt.is_bare or wt.is_locked or wt.branch is None:
                 continue
 
-            if wt.branch in self.protected:
+            if wt.branch in self.protected or wt.branch == target:
                 continue
 
             reason = _classify_stale(
@@ -137,13 +150,15 @@ class StaleAnalyzer:
 
         return candidates, skipped
 
-    def _find_stale_branches(self, worktree_branches: set[str]) -> list[CleanCandidate]:
+    def _find_stale_branches(
+        self, worktree_branches: set[str], target: str
+    ) -> list[CleanCandidate]:
         """Identify stale standalone branches (not tied to a worktree).
 
         Args:
-            worktree_branches: Branches already covered by stale worktree candidates.
+            worktree_branches: Branches checked out in a worktree, which git cannot delete.
+            target: The default branch that branches are compared against.
         """
-        target = default_branch()
         merged = merged_branches(target)
         gone = gone_branches()
 
@@ -151,7 +166,8 @@ class StaleAnalyzer:
         candidates: list[CleanCandidate] = []
 
         for branch in sorted(all_branches):
-            if branch in self.protected or branch in worktree_branches:
+            # `git branch --merged <target>` lists the target itself, so it must be excluded here.
+            if branch == target or branch in self.protected or branch in worktree_branches:
                 continue
 
             reason = _classify_stale(

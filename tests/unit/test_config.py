@@ -51,7 +51,8 @@ class TestGxConfigDefaults:
 
         cfg = GxConfig()
         with pytest.raises(dataclasses.FrozenInstanceError):
-            cfg.branch_prefix = "feature"  # type: ignore[misc]
+            # Assigning to a frozen dataclass field is the behavior under test.
+            cfg.branch_prefix = "feature"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
 
 class TestBuildConfigDefaults:

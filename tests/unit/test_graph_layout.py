@@ -24,6 +24,7 @@ from gx.lib.graph_layout import (
     fold_cells,
     layout,
     row_cells,
+    uncommitted_cells,
 )
 
 DAG_SIZE = 200
@@ -732,3 +733,60 @@ def test_node_with_right_neighbor_adds_horizontal(charset: Charset, expected: st
 
     # Then
     assert glyph == expected
+
+
+def test_uncommitted_cells_pass_through_lanes():
+    """Verify lanes entering from above pass through beside the pseudo-row node."""
+    # Given a tip in lane 1 with lane 0 continuing past it
+    rows = layout([_c("b", "a"), _c("c", "a"), _c("a")], trunk=frozenset({"b", "a"}))
+
+    # When
+    cells = uncommitted_cells(rows[1], node_up=False)
+
+    # Then
+    assert draw(cells, UNICODE) == "\u2502 \u25cc"
+    assert draw(cells, ASCII) == "| o"
+    assert cells[0].vertical is not None
+
+
+def test_uncommitted_cells_node_up():
+    """Verify node_up draws a line into the node from above."""
+    # Given a row where b's pipe terminates in lane 0 from above
+    rows = layout([_c("b", "a"), _c("a")], trunk=frozenset({"b", "a"}))
+
+    # When
+    cells = uncommitted_cells(rows[1], node_up=True)
+
+    # Then
+    assert cells[0].up
+    assert cells[0].down
+    assert draw(cells, BRANCH_SYMBOLS).startswith("\uf5fb")
+
+
+def test_uncommitted_cells_tip_alone():
+    """Verify a lone tip draws just the node."""
+    # Given
+    rows = layout([_c("a")])
+
+    # When
+    cells = uncommitted_cells(rows[0], node_up=False)
+
+    # Then
+    assert draw(cells, UNICODE) == "\u25cc"
+    assert draw(cells, BRANCH_SYMBOLS) == "\uf5f7"
+
+
+def test_uncommitted_cells_shared_lane_owner_matches_row_cells():
+    """Verify two pipes entering from one lane give the pseudo-row the owner row_cells records."""
+    # Given a row where two pipes share from_lane 1 and the node sits in lane 0
+    first = Pipe("p", "x", 1, 0, PipeKind.TERMINATES)
+    second = Pipe("q", "y", 1, 1, PipeKind.CONTINUES)
+    row = Row(sha="x", lane=0, pipes=(first, second), is_merge=False)
+
+    # When
+    pseudo = uncommitted_cells(row, node_up=False)
+    committed = row_cells(row, NodeKind.COMMIT)
+
+    # Then
+    assert pseudo[1].vertical is second
+    assert pseudo[1].vertical is committed[1].vertical

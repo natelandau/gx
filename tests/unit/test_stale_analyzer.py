@@ -3,10 +3,23 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+import pytest
 
 from gx.lib.config import config
 from gx.lib.stale_analyzer import StaleAnalyzer, _classify_stale
 from gx.lib.worktree import WorktreeInfo
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
+
+
+@pytest.fixture(autouse=True)
+def _no_checked_out_branches(mocker: MockerFixture) -> None:
+    """Keep the analyzer from reading the real repository's worktree registrations."""
+    mocker.patch("gx.lib.stale_analyzer.checked_out_branches", return_value=frozenset())
+    mocker.patch("gx.lib.stale_analyzer.read_worktree_entries", return_value=[])
 
 
 def _worktree(
@@ -82,6 +95,40 @@ class TestStaleWorktrees:
         # Then
         assert len(wt_candidates) == 0
         assert len(skipped) == 0
+
+    def test_skips_locked_worktree(self, mocker):
+        """Verify a locked worktree is never a candidate, since git refuses to remove it."""
+        # Given
+        mocker.patch(
+            "gx.lib.stale_analyzer.list_worktrees",
+            return_value=[
+                _worktree(is_main=True, path="/repo", branch="main"),
+                WorktreeInfo(
+                    path=Path("/repo/.worktrees/feat/1"),
+                    branch="feat/1",
+                    commit="abc123",
+                    is_bare=False,
+                    is_main=False,
+                    is_merged=False,
+                    is_gone=True,
+                    is_empty=False,
+                    is_locked=True,
+                ),
+            ],
+        )
+        mocker.patch("gx.lib.stale_analyzer.is_dirty", return_value=False)
+        mocker.patch("gx.lib.stale_analyzer.default_branch", return_value="main")
+        mocker.patch("gx.lib.stale_analyzer.merged_branches", return_value=frozenset())
+        mocker.patch("gx.lib.stale_analyzer.gone_branches", return_value=frozenset())
+        mocker.patch("gx.lib.stale_analyzer.all_local_branches", return_value=frozenset({"main"}))
+
+        # When
+        analyzer = StaleAnalyzer(protected=config.protected_branches)
+        wt_candidates, _, skipped = analyzer.analyze()
+
+        # Then
+        assert wt_candidates == []
+        assert skipped == []
 
     def test_skips_bare_worktree(self, mocker):
         """Verify bare worktrees are skipped."""
@@ -247,6 +294,28 @@ class TestStaleBranches:
         assert len(br_candidates) == 1
         assert br_candidates[0].branch == "feat/1"
         assert br_candidates[0].reason == "gone"
+
+    def test_skips_branch_checked_out_in_unlisted_worktree(self, mocker):
+        """Verify a branch held by a worktree list_worktrees leaves out is never a candidate."""
+        # Given a gone branch checked out in a locked worktree whose folder is missing
+        mocker.patch("gx.lib.stale_analyzer.list_worktrees", return_value=[])
+        mocker.patch(
+            "gx.lib.stale_analyzer.checked_out_branches", return_value=frozenset({"feat/1"})
+        )
+        mocker.patch("gx.lib.stale_analyzer.default_branch", return_value="main")
+        mocker.patch(
+            "gx.lib.stale_analyzer.all_local_branches",
+            return_value=frozenset({"feat/1", "main"}),
+        )
+        mocker.patch("gx.lib.stale_analyzer.gone_branches", return_value=frozenset({"feat/1"}))
+        mocker.patch("gx.lib.stale_analyzer.merged_branches", return_value=frozenset())
+
+        # When
+        analyzer = StaleAnalyzer(protected=config.protected_branches)
+        _, br_candidates, _ = analyzer.analyze()
+
+        # Then
+        assert br_candidates == []
 
     def test_finds_merged_branch_with_upstream(self, mocker):
         """Verify a merged branch with upstream is a candidate."""

@@ -13,11 +13,12 @@ from nclutils.pp.constants import Verbosity
 from gx.lib.git import set_dry_run
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 
 @pytest.fixture(autouse=True)
-def _reset_state() -> None:
+def _reset_state() -> Iterator[None]:
     """Reset verbosity and dry-run after each test."""
     yield
     pp.configure(verbosity=Verbosity.INFO)

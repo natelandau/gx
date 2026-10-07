@@ -3,13 +3,25 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+import pytest
 import typer
 from typer.core import TyperCommand
 
 from gx.lib.worktree import WorktreeInfo
 
 from .conftest import _fail, _ok
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
+
+
+@pytest.fixture(autouse=True)
+def _no_checked_out_branches(mocker: MockerFixture) -> None:
+    """Keep the analyzer from reading the real repository's worktree registrations."""
+    mocker.patch("gx.lib.stale_analyzer.checked_out_branches", return_value=frozenset())
+    mocker.patch("gx.lib.stale_analyzer.read_worktree_entries", return_value=[])
 
 
 def _worktree(
@@ -77,6 +89,7 @@ class TestCleanCommand:
         # Given: no worktrees, one gone standalone branch
         mock_clean_git.side_effect = [
             _ok(),  # fetch
+            _ok(),  # worktree prune
             _ok(),  # branch -D feat/1
         ]
         mocker.patch("gx.lib.stale_analyzer.list_worktrees", return_value=[])
@@ -131,8 +144,8 @@ class TestCleanCommand:
         # Then
         captured = capsys.readouterr()
         assert "feat/1" in captured.out
-        # branch -D should not have been called, only fetch
-        assert mock_clean_git.call_count == 1
+        # branch -D should not have been called, only fetch and prune
+        assert mock_clean_git.call_count == 2
 
 
 class TestCleanPartialFailure:
@@ -174,6 +187,7 @@ class TestCleanPartialFailure:
 
         mock_clean_git.side_effect = [
             _ok(),  # fetch
+            _ok(),  # worktree prune
             _ok(),  # branch -D feat/2
         ]
 

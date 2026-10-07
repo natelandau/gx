@@ -90,7 +90,7 @@ def format(ctx: Context) -> None:  # noqa: A001
 def ty(ctx: Context) -> None:
     """Check the code with ty."""
     ctx.run(
-        ["ty", "check", "src/"],
+        ["ty", "check", "src/", "tests/"],
         title="ty check",
     )
 

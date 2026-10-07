@@ -5,13 +5,16 @@ from __future__ import annotations
 import re
 import zlib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 from nclutils import pp
 
+from gx.lib.branch import branch_file_statuses
 from gx.lib.config import config
 from gx.lib.git import git
 from gx.lib.refs import read_remotes, remote_glyph
+from gx.lib.worktree import parse_worktree_porcelain
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -30,6 +33,7 @@ DIM = "dim"
 REMOTE_REF_PREFIX = "refs/remotes/"
 
 type Parents = Mapping[str, tuple[str, ...]]
+type FileCounts = tuple[int, int, int, int]
 
 
 def dimmed(style: str) -> str:
@@ -152,6 +156,10 @@ class BranchState:
     behind: int = 0
     upstream_gone: bool = False
     has_remote_upstream: bool = False
+    tip: str | None = None
+    worktree: Path | None = None
+    dirty: FileCounts | None = None
+    stale: Literal["merged", "gone"] | None = None
 
 
 @dataclass(frozen=True)
@@ -167,6 +175,7 @@ class LogContext:
     unpushed: frozenset[str] = frozenset()
     remotes: frozenset[str] = frozenset()
     remote_glyphs: Mapping[str, str] = field(default_factory=dict)
+    stale: frozenset[str] = frozenset()
 
     def owner(self, sha: str) -> BranchState | None:
         """Return the branch that owns a commit, if it is visible.
@@ -340,6 +349,72 @@ def read_unpushed(
     return frozenset(unpushed)
 
 
+@dataclass(frozen=True)
+class Checkout:
+    """A branch checked out in a worktree and its uncommitted file counts."""
+
+    path: Path
+    dirty: FileCounts | None
+    is_main: bool = False
+    is_locked: bool = False
+
+    @property
+    def cleanable(self) -> bool:
+        """Whether `gx clean` may remove this worktree.
+
+        Clean never removes the main or a locked worktree, nor a dirty one without --force.
+        """
+        return not (self.is_main or self.is_locked or self.dirty is not None)
+
+
+def read_checkouts(current: str | None) -> dict[str, Checkout]:
+    """Map each checked-out branch to its worktree and uncommitted changes.
+
+    Args:
+        current: Name of the branch checked out in the working directory.
+
+    Returns:
+        Checkouts by branch name. Bare, detached, and prunable entries are left out.
+        A locked worktree whose folder is missing stays in, since it still holds its branch.
+    """
+    result = git("worktree", "list", "--porcelain")
+    if not result.ok:
+        pp.debug(f"git worktree list failed, worktree marks unavailable: {result.stderr}")
+        return {}
+    checkouts: dict[str, Checkout] = {}
+    for index, raw in enumerate(parse_worktree_porcelain(result.stdout)):
+        name = raw.get("branch")
+        if name is None or {"bare", "detached", "prunable"} & raw.keys():
+            continue
+        path = Path(raw["path"])
+        counts = branch_file_statuses(is_current=name == current, wt_path=path)
+        checkouts[name] = Checkout(
+            path=path,
+            dirty=counts if any(counts) else None,
+            is_main=index == 0,
+            is_locked="locked" in raw,
+        )
+    return checkouts
+
+
+def read_merged(default: str | None) -> frozenset[str]:
+    """List the local branches merged into the default branch.
+
+    Args:
+        default: Name of the default branch, or None when there is none.
+
+    Returns:
+        The merged branch names, empty when there is no default or git fails.
+    """
+    if default is None:
+        return frozenset()
+    result = git("branch", "--merged", default, "--format=%(refname:lstrip=2)")
+    if not result.ok:
+        pp.debug(f"git branch --merged failed, merged state unavailable: {result.stderr}")
+        return frozenset()
+    return frozenset(result.stdout.split())
+
+
 def build_log_context(
     parents: Parents,
     *,
@@ -347,11 +422,14 @@ def build_log_context(
     default_tip: str | None,
     refs: BranchRefs | None = None,
     remotes: Mapping[str, str] | None = None,
+    checkouts: Mapping[str, Checkout] | None = None,
+    merged: frozenset[str] | None = None,
 ) -> LogContext:
     """Assemble the branch context that colors the log graph.
 
-    Only branches with a presence in the window get a state and a palette slot, so
-    branches outside the window cannot shift the colors of visible ones.
+    Branches with a presence in the window, and checked-out branches with uncommitted
+    changes, get a state and a palette slot. Other branches outside the window get
+    none, so they cannot shift the colors of visible ones.
 
     Args:
         parents: Map of sha to parent shas, covering window commits only.
@@ -359,6 +437,8 @@ def build_log_context(
         default_tip: Tip sha of the default branch.
         refs: Branch tips and HEAD already read from git, or None to read them.
         remotes: Map of remote name to fetch URL, or None to read them.
+        checkouts: Worktree checkouts by branch, or None to read them.
+        merged: Local branches merged into the default, or None to read them.
 
     Returns:
         The context for styling commits and pipes.
@@ -366,6 +446,8 @@ def build_log_context(
     refs = refs if refs is not None else read_branch_refs()
     remotes = remotes if remotes is not None else read_remotes()
     tips, current, head_sha = refs.tips, refs.current, refs.head_sha
+    checkouts = checkouts if checkouts is not None else read_checkouts(current)
+    merged = merged if merged is not None else read_merged(default)
     head_reachable = reachable([head_sha] if head_sha else [], parents)
     owners = assign_owners(
         parents, default_tip=default_tip, branch_tips=tips, current=current, default=default
@@ -373,12 +455,30 @@ def build_log_context(
 
     owning = set(owners.values())
     visible = sorted(
-        name for name, tip in tips.items() if name != default and (name in owning or tip in parents)
+        name
+        for name, tip in tips.items()
+        if name != default
+        and (
+            name in owning
+            or tip in parents
+            or (name in checkouts and checkouts[name].dirty is not None)
+        )
     )
     colors = assign_colors(visible)
 
+    def stale_kind(name: str) -> Literal["merged", "gone"] | None:
+        track = refs.tracking.get(name)
+        if name in (default, current) or name in config.protected_branches:
+            return None
+        if track is not None and track.gone:
+            return "gone"
+        return "merged" if name in merged and track is not None else None
+
+    stale_by_name = {name: kind for name in tips if (kind := stale_kind(name)) is not None}
+
     def state(name: str, color: str, *, is_default: bool) -> BranchState:
         track = refs.tracking.get(name)
+        checkout = checkouts.get(name)
         return BranchState(
             name=name,
             color=color,
@@ -389,6 +489,10 @@ def build_log_context(
             behind=track.behind if track else 0,
             upstream_gone=track.gone if track else False,
             has_remote_upstream=bool(track and track.upstream_ref.startswith(REMOTE_REF_PREFIX)),
+            tip=tips.get(name),
+            worktree=checkout.path if checkout and name != current else None,
+            dirty=checkout.dirty if checkout else None,
+            stale=stale_by_name.get(name),
         )
 
     branches: dict[str, BranchState] = {}
@@ -406,5 +510,8 @@ def build_log_context(
         remotes=frozenset(remotes),
         remote_glyphs=(
             {name: remote_glyph(url) for name, url in remotes.items()} if config.nerd_font else {}
+        ),
+        stale=frozenset(
+            name for name in stale_by_name if name not in checkouts or checkouts[name].cleanable
         ),
     )

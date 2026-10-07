@@ -42,7 +42,7 @@ Every command supports `-h` for help. The mutating commands (`feat`, `push`, `pu
 
 Show a dashboard with panels for repository metadata, branches, working tree state, and recent commits. Running `gx` with no arguments inside a repo shows this dashboard.
 
-When the `gh` CLI is installed and the remote is on GitHub, an additional panel shows the repo description, visibility, stars, and open PR/issue counts. Stash and worktree panels appear only when there's something to show.
+When the `gh` CLI is installed and the remote is on GitHub, an additional panel shows the repo description, visibility, stars, and open PR/issue counts. Stash and worktree panels appear only when there's something to show. The worktree panel also notes worktrees whose folder was deleted and tells you to run `git worktree prune`.
 
 In a brand-new repo with no commits yet, `gx info` (and `gx status`) show the repository metadata and a "No commits yet" placeholder instead of the branch and commit panels.
 
@@ -74,7 +74,7 @@ gx log --graph            # branch graph of all branches, long runs folded
 gx log --graph --full     # branch graph with every commit
 ```
 
-The graph reaches back past the point where each local branch leaves the default branch, so you can see which commit every branch and worktree starts from. Long runs of commits with no branch or tag fold into one line that names the branch they belong to, such as `… N more commits on main`. `-c` sets the least number of commits to show. Each branch except the default branch gets its own color. A legend under the graph names the branches and marks the branch you have checked out. On a narrow terminal, the legend ends with `+N more`. Commits that your checkout does not contain are dim, and subjects on your current branch are bold. The branch you have checked out shows as `[name]`, other local branches as `(name)`, and tags as `◆ name`. A detached HEAD shows as `[HEAD]`. Other remote branches show dim, such as `origin/x`. `↑2` and `↓1` show how far a branch is ahead of or behind its upstream, and `⇅` means it matches its remote branch. A `↑` after a SHA marks a commit you have not pushed. With the ASCII style, the marker is `+`. The legend marks branches with no remote upstream as `local`.
+The graph reaches back past the point where each local branch leaves the default branch, so you can see which commit every branch and worktree starts from. Long runs of commits with no branch or tag fold into one line that names the branch they belong to, such as `… N more commits on main`. `-c` sets the least number of commits to show. Each branch except the default branch gets its own color. A legend under the graph names the branches and marks the branch you have checked out. On a narrow terminal, the legend ends with `+N more`. Commits that your checkout does not contain are dim, and subjects on your current branch are bold. The branch you have checked out shows as `[name]`, other local branches as `(name)`, and tags as `◆ name`. A detached HEAD shows as `[HEAD]`. Other remote branches show dim, such as `origin/x`. `↑2` and `↓1` show how far a branch is ahead of or behind its upstream, and `⇅` means it matches its remote branch. A `↑` after a SHA marks a commit you have not pushed. With the ASCII style, the marker is `+`. The legend marks branches with no remote upstream as `local`. A branch checked out in another worktree shows `⌂` and the folder name of that worktree. With the ASCII style, the mark is `wt:` and the folder name, such as `wt:gx-fix`. When `nerd_font` is on, a folder glyph replaces `⌂`. Uncommitted changes appear as a `◌ uncommitted: ...` line above the newest commit of the branch. With the ASCII style, the line starts with `o`. Merged branches and branches with a deleted upstream carry a dim `merged` or `gone` mark. A line under the legend counts the merged and gone branches that `gx clean` removes. The count leaves out empty branches, and branches in worktrees with uncommitted changes, because `gx clean` skips those unless you use `--force`.
 
 ### `gx feat`
 
@@ -169,7 +169,7 @@ gx clean -f              # include dirty worktrees
 gx clean -n              # preview what would be removed
 ```
 
-The current branch and any branches in the protected list (default: `main`, `master`, `develop`) are never touched. Worktrees with uncommitted changes are skipped unless you pass `--force`.
+The current branch, the default branch, and any branches in the protected list (default: `main`, `master`, `develop`) are never touched. Worktrees with uncommitted changes are skipped unless you pass `--force`. Locked worktrees, and branches that a worktree has checked out, are skipped. `gx clean` also prunes registrations of worktrees whose folders were deleted by hand.
 
 ### `gx done`
 

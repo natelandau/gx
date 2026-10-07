@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from nclutils.sh import run_command
+from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -27,7 +28,7 @@ from gx.constants import GH_TIMEOUT
 from gx.lib.display import kv_grid
 from gx.lib.git import git
 from gx.lib.github import gh_available, is_github_remote
-from gx.lib.worktree import list_worktrees
+from gx.lib.worktree import list_worktrees, missing_worktrees, read_worktree_entries
 
 if TYPE_CHECKING:
     from nclutils.git import Remote
@@ -303,10 +304,13 @@ class WorktreePanel:
     def render(self) -> Panel | None:
         """Build a Rich Panel listing non-main worktrees with their paths.
 
-        Returns None when only the main worktree exists or no worktrees are found.
+        Notes registrations whose folder is gone. Returns None when only the main
+        worktree exists and nothing is missing.
         """
-        worktrees = [wt for wt in list_worktrees() if not wt.is_main]
-        if not worktrees:
+        entries = read_worktree_entries()
+        worktrees = [wt for wt in list_worktrees(entries) if not wt.is_main]
+        missing = missing_worktrees(entries)
+        if not worktrees and not missing:
             return None
 
         grid = Table.grid(padding=(0, 2))
@@ -321,4 +325,10 @@ class WorktreePanel:
                 rel_path = str(wt.path)
             grid.add_row(branch, rel_path)
 
-        return Panel(grid, title="Worktrees", border_style="dim")
+        if not missing:
+            return Panel(grid, title="Worktrees", border_style="dim")
+
+        noun = "worktree" if len(missing) == 1 else "worktrees"
+        note = Text(f"{len(missing)} missing {noun}: git worktree prune", style="dim")
+        content = Group(grid, note) if worktrees else note
+        return Panel(content, title="Worktrees", border_style="dim")

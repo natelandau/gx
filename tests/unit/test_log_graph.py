@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from io import StringIO
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -29,6 +31,7 @@ from gx.lib.graph_layout import (
     layout,
     row_cells,
 )
+from gx.lib.log_badges import badge_symbols
 from gx.lib.log_context import BranchRefs, BranchState, LogContext
 from gx.lib.log_graph import (
     FOLD_MIN_RUN,
@@ -36,12 +39,16 @@ from gx.lib.log_graph import (
     GraphEntry,
     LaneFold,
     LogGraph,
+    UncommittedRow,
     _escape_glob,
     _graph_text,
+    describe_uncommitted,
     fold_entries,
+    insert_uncommitted,
     is_straight,
     join_blocks,
     parse_commit_line,
+    render_clean_hint,
     render_legend,
     render_line,
     short_age,
@@ -480,7 +487,8 @@ class TestRenderLine:
         )
 
         # When rendered without color
-        console = Console(file=StringIO(), no_color=True, width=120, force_terminal=False)
+        buffer = StringIO()
+        console = Console(file=buffer, no_color=True, width=120, force_terminal=False)
         for entry in _entries(records):
             console.print(render_line(entry, UNICODE, context=context, now=NOW))
         legend = render_legend(context, UNICODE, None)
@@ -488,7 +496,7 @@ class TestRenderLine:
         console.print(legend)
 
         # Then each line matches the badge rules
-        assert console.file.getvalue() == (
+        assert buffer.getvalue() == (
             "◉ aaaaaaa↑ [feat ↑1] commit a  0s\n"
             "● bbbbbbb (main ⇅) ◆ v1 commit b  0s\n"
             "● ccccccc (solo) commit c  0s\n"
@@ -605,7 +613,7 @@ class TestRenderLine:
         )
         parents = {_sha(n): (_sha("c"),) for n in "ab"} | {_sha("c"): ()}
 
-        def side_lane_style(owners: dict[str, str]) -> str:
+        def side_lane_style(owners: dict[str, str]) -> str | None:
             context = _context(owners, parents=parents)
             text = render_line(entries[1], UNICODE, context=context, now=NOW)
             lane = text.plain.index("│")
@@ -1213,3 +1221,384 @@ class TestRenderLegend:
         # Then the default is followed by the tail
         assert legend is not None
         assert legend.plain == "● main  +2 more"
+
+
+def _dirty_context(
+    dirty: Mapping[str, tuple[int, int, int, int]],
+    *,
+    tip: str | None = None,
+    current: str | None = None,
+    worktrees: Mapping[str, str] | None = None,
+    stale: frozenset[str] = frozenset(),
+    head_reachable: frozenset[str] | None = None,
+    parents: Mapping[str, tuple[str, ...]] | None = None,
+) -> LogContext:
+    """Build a context where each branch in `dirty` has uncommitted changes at `tip`.
+
+    `worktrees` maps a branch name to a worktree folder name.
+    """
+    worktrees = worktrees or {}
+    names = [*dirty, *(n for n in worktrees if n not in dirty)]
+    branches = {
+        "main": BranchState(name="main", color="", is_current=current == "main", is_default=True),
+        **{
+            n: BranchState(
+                name=n,
+                color="cyan",
+                is_current=n == current,
+                is_default=False,
+                tip=tip,
+                dirty=dirty.get(n),
+                worktree=Path("/w") / worktrees[n] if n in worktrees else None,
+                stale="merged" if n in stale else None,
+            )
+            for n in names
+        },
+    }
+    return LogContext(
+        default="main",
+        current=current,
+        branches=branches,
+        owners={},
+        head_reachable=frozenset({_sha("a")}) if head_reachable is None else head_reachable,
+        parents=parents or {},
+        stale=stale,
+    )
+
+
+@pytest.mark.parametrize(
+    ("counts", "expected"),
+    [
+        ((1, 2, 0, 1), "uncommitted: 1 staged, 2 modified, 1 untracked"),
+        ((1, 2, 1, 1), "uncommitted: 1 staged, 2 modified, 1 conflicted, 1 untracked"),
+        ((0, 0, 1, 0), "uncommitted: 1 conflicted"),
+        ((0, 3, 0, 0), "uncommitted: 3 modified"),
+    ],
+)
+def test_describe_uncommitted(counts, expected) -> None:
+    """Only non-zero counts appear, in a fixed order."""
+    assert describe_uncommitted(counts) == expected
+
+
+class TestInsertUncommitted:
+    """Pseudo-rows above the newest commit of a dirty branch."""
+
+    def test_pseudo_row_inserted_above_dirty_tip(self) -> None:
+        """The dirty branch's tip gains a pseudo-row and an up line."""
+        context = _dirty_context({"fix": (0, 2, 0, 0)}, tip=_sha("a"))
+
+        lines = insert_uncommitted(_entries(_chain("ab", refs={"a": "fix"})), context)
+
+        assert isinstance(lines[0], UncommittedRow)
+        assert lines[0].branch == "fix"
+        assert lines[0].counts == (0, 2, 0, 0)
+        assert lines[0].named is False
+        assert lines[0].node_up is False
+        assert isinstance(lines[1], GraphEntry)
+        assert lines[1].uncommitted_above is True
+        assert isinstance(lines[2], GraphEntry)
+        assert lines[2].uncommitted_above is False
+
+    def test_no_pseudo_row_when_tip_not_in_window(self) -> None:
+        """A dirty branch whose tip is outside the window adds nothing."""
+        context = _dirty_context({"fix": (0, 2, 0, 0)}, tip=_sha("q"))
+
+        lines = insert_uncommitted(_entries(_chain("ab")), context)
+
+        assert not any(isinstance(line, UncommittedRow) for line in lines)
+
+    def test_clean_branches_add_nothing(self) -> None:
+        """Branches without changes leave the lines untouched."""
+        context = _dirty_context({}, tip=_sha("a"), worktrees={"fix": "wt"})
+        entries = _entries(_chain("ab"))
+
+        assert insert_uncommitted([*entries], context) == entries
+
+    def test_pseudo_row_above_shared_tip(self) -> None:
+        """A current dirty branch sharing its tip with main still gets a pseudo-row."""
+        context = _dirty_context({"feat": (1, 0, 0, 0)}, tip=_sha("a"), current="feat")
+        entries = _entries(_chain("ab", refs={"a": "HEAD -> feat, main"}))
+
+        lines = insert_uncommitted([*entries], context)
+
+        assert [type(line).__name__ for line in lines][:2] == ["UncommittedRow", "GraphEntry"]
+
+    def test_several_dirty_branches_at_one_tip_are_named_and_stacked(self) -> None:
+        """Each dirty branch gets a named row, current first, stacked with lines between."""
+        context = _dirty_context(
+            {"fix": (0, 1, 0, 0), "feat": (0, 2, 0, 0)}, tip=_sha("a"), current="feat"
+        )
+        entries = _entries(_chain("ab", refs={"a": "HEAD -> feat, fix"}))
+
+        rows = [
+            line
+            for line in insert_uncommitted([*entries], context)
+            if isinstance(line, UncommittedRow)
+        ]
+
+        assert [r.branch for r in rows] == ["feat", "fix"]
+        assert all(r.named for r in rows)
+        assert [r.node_up for r in rows] == [False, True]
+
+    def test_first_row_node_up_when_a_line_enters_from_above(self) -> None:
+        """A tip with a child above it keeps the line into the pseudo-row."""
+        context = _dirty_context({"fix": (0, 1, 0, 0)}, tip=_sha("b"))
+        entries = _entries(_chain("abc", refs={"a": "feat", "b": "fix"}))
+
+        rows = [
+            line
+            for line in insert_uncommitted([*entries], context)
+            if isinstance(line, UncommittedRow)
+        ]
+
+        assert [r.node_up for r in rows] == [True]
+
+
+class TestRenderUncommitted:
+    """Drawing the pseudo-row and the tip below it."""
+
+    def test_render_pseudo_row(self) -> None:
+        """The node takes the branch color and the text is dim italic."""
+        context = _dirty_context({"fix": (0, 2, 0, 0)}, tip=_sha("a"))
+        row = _tip("a", "fix").row
+
+        text = render_line(
+            UncommittedRow("fix", (0, 2, 0, 0), row, node_up=False, named=False),
+            UNICODE,
+            context=context,
+            now=NOW,
+        )
+
+        assert text.plain == "◌ uncommitted: 2 modified"
+        assert _style_at(text, 0) == "cyan"
+        assert _style_at(text, 2) == "dim italic"
+
+    def test_named_pseudo_row_names_the_branch(self) -> None:
+        """A shared tip says which branch each row belongs to."""
+        context = _dirty_context({"fix": (0, 2, 0, 0)}, tip=_sha("a"))
+        row = _tip("a", "fix").row
+
+        text = render_line(
+            UncommittedRow("fix", (0, 2, 0, 0), row, node_up=True, named=True),
+            ASCII,
+            context=context,
+            now=NOW,
+        )
+
+        assert text.plain == "o uncommitted: 2 modified on fix"
+
+    def test_node_dims_when_tip_is_off_head(self) -> None:
+        """A branch HEAD does not reach draws a dim node."""
+        context = _dirty_context({"fix": (0, 2, 0, 0)}, tip=_sha("a"), head_reachable=frozenset())
+        row = _tip("a", "fix").row
+
+        text = render_line(
+            UncommittedRow("fix", (0, 2, 0, 0), row, node_up=False, named=False),
+            UNICODE,
+            context=context,
+            now=NOW,
+        )
+
+        assert _style_at(text, 0) == "cyan dim"
+
+    def test_tip_node_gains_up_line(self) -> None:
+        """The commit below a pseudo-row draws a node with a line up."""
+        context = _dirty_context({"fix": (0, 2, 0, 0)}, tip=_sha("a"))
+        entry = _tip("a", "fix")
+        plain = render_line(entry, BRANCH_SYMBOLS, context=context, now=NOW).plain
+        raised = render_line(
+            replace(entry, uncommitted_above=True), BRANCH_SYMBOLS, context=context, now=NOW
+        ).plain
+
+        up_cell = replace(row_cells(entry.row, NodeKind.COMMIT)[0], up=True)
+        assert raised.startswith(BRANCH_SYMBOLS.glyph(up_cell).rstrip())
+        assert raised != plain
+
+
+class TestLegendMarks:
+    """Worktree and dirty marks in the legend."""
+
+    @staticmethod
+    def _context() -> LogContext:
+        base = _dirty_context(
+            {"fix": (0, 1, 0, 0), "wt2": (0, 1, 0, 0)},
+            tip=_sha("a"),
+            worktrees={"fix": "gx-fix", "wt2": "gx-wt2"},
+            parents={_sha("a"): ()},
+        )
+        branches = dict(base.branches)
+        # wt2's tip is outside the window, so the pseudo-row cannot show its changes.
+        branches["wt2"] = replace(branches["wt2"], tip=_sha("q"))
+        return replace(base, branches=branches)
+
+    def test_legend_worktree_and_dirty_marks(self) -> None:
+        """A visible dirty tip needs no mark; an off-window one gets the dirty mark."""
+        context = self._context()
+
+        legend = render_legend(context, UNICODE, None)
+        ascii_legend = render_legend(context, ASCII, None)
+
+        assert legend is not None
+        assert legend.plain == "● main  ● fix ⌂  ● wt2 ⌂ ◌"
+        assert ascii_legend is not None
+        assert ascii_legend.plain == "* main  * fix wt  * wt2 wt o"
+
+    def test_marks_are_dim(self) -> None:
+        """Both marks use the dim style."""
+        legend = render_legend(self._context(), UNICODE, None)
+
+        assert legend is not None
+        assert _style_at(legend, legend.plain.index("⌂")) == "dim"
+        assert _style_at(legend, legend.plain.index("◌")) == "dim"
+
+    def test_nerd_font_worktree_mark(self, mocker) -> None:
+        """The nerd font folder glyph replaces the house mark."""
+        mocker.patch("gx.lib.log_graph.config", GxConfig(graph_style="unicode", nerd_font=True))
+        context = self._context()
+        text = render_line(_tip("a", "fix"), UNICODE, context=context, now=NOW)
+
+        assert "\uf07b gx-fix" in text.plain
+
+    def test_nerd_font_legend_worktree_mark(self) -> None:
+        """The legend uses the folder glyph, not the house, when nerd fonts are on."""
+        legend = render_legend(
+            self._context(),
+            UNICODE,
+            None,
+            symbols=badge_symbols(UNICODE, nerd_font=True),
+        )
+
+        assert legend is not None
+        assert legend.plain == "● main  ● fix \uf07b  ● wt2 \uf07b ◌"
+
+
+class TestCleanHint:
+    """The line under the legend counting branches gx clean can remove."""
+
+    @pytest.mark.parametrize(
+        ("count", "expected"),
+        [
+            (1, "1 branch can be cleaned up: gx clean"),
+            (3, "3 branches can be cleaned up: gx clean"),
+        ],
+    )
+    def test_clean_hint(self, count, expected) -> None:
+        """The noun agrees with the count and the line is dim."""
+        context = replace(_context(), stale=frozenset(f"old{i}" for i in range(count)))
+
+        hint = render_clean_hint(context)
+
+        assert hint is not None
+        assert hint.plain == expected
+        assert _style_at(hint, 0) == "dim"
+
+    def test_no_clean_hint_without_stale_branches(self) -> None:
+        """Nothing stale means no hint."""
+        assert render_clean_hint(_context()) is None
+
+
+class TestRenderHint:
+    """LogGraph.render places the hint after the legend."""
+
+    _patch = TestLogGraphRender._patch
+
+    @staticmethod
+    def _line(name: str, parents: tuple[str, ...]) -> str:
+        return TestLogGraphRender._line(name, parents)
+
+    def test_render_appends_hint_after_legend(self, mocker) -> None:
+        """The hint follows the legend directly."""
+        self._patch(mocker, [self._line("a", ())])
+        mocker.patch("gx.lib.log_graph.render_legend", return_value=Text("legend"))
+        mocker.patch("gx.lib.log_graph.render_clean_hint", return_value=Text("hint"))
+
+        out = LogGraph().render()
+
+        assert [t.plain for t in out[-3:]] == ["", "legend", "hint"]
+
+    def test_render_hint_without_legend(self, mocker) -> None:
+        """With no legend the hint gets its own blank line."""
+        self._patch(mocker, [self._line("a", ())])
+        mocker.patch("gx.lib.log_graph.render_clean_hint", return_value=Text("hint"))
+
+        out = LogGraph().render()
+
+        assert [t.plain for t in out[-2:]] == ["", "hint"]
+
+    def test_pseudo_row_rendered_above_tip(self, mocker) -> None:
+        """A dirty tip in the window produces a pseudo-row line before its commit."""
+        self._patch(mocker, [self._line("a", ())])
+        mocker.patch(
+            "gx.lib.log_graph.build_log_context",
+            return_value=_dirty_context({"fix": (0, 2, 0, 0)}, tip=_sha("a")),
+        )
+
+        out = LogGraph().render()
+
+        assert out[0].plain == "◌ uncommitted: 2 modified"
+        assert out[1].plain.startswith("● aaaaaaa")
+
+
+def test_worktrees_snapshot_without_color(mocker) -> None:
+    """A dirty current branch, a worktree branch, and a merged branch render as specified."""
+    mocker.patch("gx.lib.log_graph.config", GxConfig(graph_style="unicode", nerd_font=False))
+    records = _chain("abcd", refs={"a": "HEAD -> feat", "b": "fix", "c": "main", "d": "old"})
+    branches = {
+        "main": BranchState(name="main", color="", is_current=False, is_default=True),
+        "feat": BranchState(
+            name="feat",
+            color="cyan",
+            is_current=True,
+            is_default=False,
+            tip=_sha("a"),
+            dirty=(0, 2, 0, 0),
+        ),
+        "fix": BranchState(
+            name="fix",
+            color="magenta",
+            is_current=False,
+            is_default=False,
+            tip=_sha("b"),
+            worktree=Path("/work/gx-fix"),
+        ),
+        "old": BranchState(
+            name="old",
+            color="red",
+            is_current=False,
+            is_default=False,
+            tip=_sha("d"),
+            stale="merged",
+        ),
+    }
+    context = LogContext(
+        default="main",
+        current="feat",
+        branches=branches,
+        owners={},
+        head_reachable=frozenset(_sha(n) for n in "abcd"),
+        parents={r.sha: r.parents for r in records},
+        stale=frozenset({"old"}),
+    )
+
+    buffer = StringIO()
+    console = Console(file=buffer, no_color=True, width=120, force_terminal=False)
+    for line in insert_uncommitted([*_entries(records)], context):
+        console.print(render_line(line, UNICODE, context=context, now=NOW))
+    console.print(Text(""))
+    legend = render_legend(context, UNICODE, None)
+    hint = render_clean_hint(context)
+    assert legend is not None
+    assert hint is not None
+    console.print(legend)
+    console.print(hint)
+
+    assert buffer.getvalue() == (
+        "◌ uncommitted: 2 modified\n"
+        "◉ aaaaaaa [feat] commit a  0s\n"
+        "● bbbbbbb (fix ⌂ gx-fix) commit b  0s\n"
+        "● ccccccc (main) commit c  0s\n"
+        "● ddddddd (old merged) commit d  0s\n"
+        "\n"
+        "● main  ● feat (current)  ● fix ⌂  ● old\n"
+        "1 branch can be cleaned up: gx clean\n"
+    )

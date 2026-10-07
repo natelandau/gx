@@ -218,6 +218,7 @@ class NodeKind(Enum):
     HEAD = "head"
     FOLD = "fold"
     FADE = "fade"
+    UNCOMMITTED = "uncommitted"
 
 
 LineKey = tuple[bool, bool, bool, bool]  # (up, down, left, right)
@@ -342,6 +343,7 @@ UNICODE = Charset(
         NodeKind.HEAD: "◉",
         NodeKind.FOLD: "┊",
         NodeKind.FADE: "╎",
+        NodeKind.UNCOMMITTED: "◌",
     },
     node_shapes={},
     horizontal="─",
@@ -356,6 +358,7 @@ ASCII = Charset(
         NodeKind.HEAD: "@",
         NodeKind.FOLD: ":",
         NodeKind.FADE: ":",
+        NodeKind.UNCOMMITTED: "o",
     },
     node_shapes={},
     horizontal="-",
@@ -370,6 +373,7 @@ BRANCH_SYMBOLS = Charset(
         NodeKind.HEAD: "\uf5ee",
         NodeKind.FOLD: _BRANCH_FILL,
         NodeKind.FADE: _BRANCH_FILL,
+        NodeKind.UNCOMMITTED: "\uf5f7",
     },
     node_shapes={
         (NodeKind.COMMIT, _T, _T): "\uf5fb",
@@ -384,6 +388,7 @@ BRANCH_SYMBOLS = Charset(
         (NodeKind.HEAD, _F, _T): "\uf5f6",
         (NodeKind.HEAD, _T, _F): "\uf5f8",
         (NodeKind.HEAD, _F, _F): "\uf5ee",
+        (NodeKind.UNCOMMITTED, _T, _T): "\uf5fb",
     },
     horizontal="\uf5d0",
 )
@@ -502,6 +507,44 @@ def fade_cells(last: Row) -> list[Cell] | None:
         )
         for i in range(max(open_pipes) + 1)
     ]
+
+
+def entering_lanes(row: Row) -> dict[int, Pipe]:
+    """Map each lane a line enters from above to the pipe that owns it.
+
+    Args:
+        row: The laid-out row.
+
+    Returns:
+        dict[int, Pipe]: Pipes that continue or terminate on `row`, by their source lane.
+            Pipes sharing a lane keep the last one, the same owner `row_cells` records.
+    """
+    return {
+        p.from_lane: p for p in row.pipes if p.kind in (PipeKind.CONTINUES, PipeKind.TERMINATES)
+    }
+
+
+def uncommitted_cells(row: Row, *, node_up: bool) -> list[Cell]:
+    """Build the pseudo-row for uncommitted changes drawn above a commit's row.
+
+    Args:
+        row: The commit row the pseudo-row sits above.
+        node_up: Whether a line enters the node from above, as when another pseudo-row
+            or a child commit sits directly over it.
+
+    Returns:
+        list[Cell]: Cells for lanes 0 through the widest lane entering `row` from above.
+    """
+    entering = entering_lanes(row)
+    cells: list[Cell] = []
+    for lane in range(max([row.lane, *entering]) + 1):
+        if lane == row.lane:
+            cells.append(Cell(up=node_up, down=True, node=NodeKind.UNCOMMITTED))
+        elif lane in entering:
+            cells.append(Cell(up=True, down=True, vertical=entering[lane]))
+        else:
+            cells.append(Cell())
+    return cells
 
 
 def draw(cells: Sequence[Cell], charset: Charset) -> str:

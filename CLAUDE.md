@@ -117,12 +117,14 @@ src/gx/
 ### Worktree Management
 
 - Worktree operations run through `src/gx/lib/worktree.py`
-- Import: `from gx.lib.worktree import list_worktrees, create_worktree, remove_worktree, WorktreeInfo`
-- `list_worktrees()`: returns `list[WorktreeInfo]` enriched with branch status flags
-- `WorktreeInfo` fields: `path`, `branch`, `commit`, `is_bare`, `is_main`, `is_merged`, `is_gone`, `is_empty`
-- `create_worktree(path, branch)`: creates worktree with new branch
+- Import: `from gx.lib.worktree import list_worktrees, missing_worktrees, checked_out_branches, create_worktree, remove_worktree, WorktreeInfo`
+- `list_worktrees()`: returns `list[WorktreeInfo]` enriched with branch status flags; registrations whose folder is gone (prunable) are left out
+- `missing_worktrees()`: paths of unlocked registrations whose folder is gone, for telling the user to run `git worktree prune`
+- `checked_out_branches()`: branches held by any non-prunable registration (including locked ones with no folder), which git refuses to delete
+- `WorktreeInfo` fields: `path`, `branch`, `commit`, `is_bare`, `is_main`, `is_merged`, `is_gone`, `is_empty`, `is_locked`
+- `create_worktree(path, branch)`: prunes stale registrations, then creates worktree with new branch
 - `remove_worktree(path)`: removes worktree
-- `is_main` worktree is never a cleanup candidate
+- `is_main` and `is_locked` worktrees are never cleanup candidates
 
 ### Sync and Reconcile
 

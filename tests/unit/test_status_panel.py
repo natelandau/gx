@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from rich.tree import Tree
+
 from gx.lib.status_panel import StatusPanel, _build_file_tree, _parse_porcelain
 
 
@@ -44,6 +46,7 @@ class TestBuildFileTree:
             ("??", "README.md"),
         ]
         tree = _build_file_tree(entries, "myrepo")
+        assert tree is not None
         assert "myrepo" in str(tree.label)
 
     def test_empty_entries_returns_none(self):
@@ -62,7 +65,7 @@ class TestStatusPanel:
         # When
         result = panel.render()
         # Then
-        assert result is not None
+        assert isinstance(result, Tree)
         assert "myrepo" in str(result.label)
 
     def test_render_clean_tree(self):

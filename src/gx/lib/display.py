@@ -16,6 +16,8 @@ from rich.table import Table
 from rich.text import Text
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from gx.lib.branch import BranchRow
 
 _COMMIT_TYPES = "feat|fix|refactor|perf|build|ci|docs|style|test|chore|bump"
@@ -30,7 +32,7 @@ def commit_text(line: str) -> Text:
     return text
 
 
-def kv_grid(rows: list[tuple[str | Text, str | Text]]) -> Table:
+def kv_grid(rows: Sequence[tuple[str | Text, str | Text]]) -> Table:
     """Build a right-aligned label / left-aligned value grid for info panels.
 
     Args:

@@ -242,6 +242,9 @@ def branch_file_statuses(*, is_current: bool, wt_path: Path | None) -> tuple[int
     if not is_current and not wt_path:
         return (0, 0, 0, 0)
 
+    if not is_current and wt_path is not None and not wt_path.exists():
+        return (0, 0, 0, 0)
+
     cwd = None if is_current else wt_path
     result = git("status", "--porcelain", cwd=cwd)
     if result.ok:

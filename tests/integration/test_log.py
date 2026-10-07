@@ -483,3 +483,188 @@ class TestLogIntegration:
         assert f"(main {sync})" in result.output
         assert tag in result.output
         assert "solo local" in result.output.splitlines()[-1]
+
+    @staticmethod
+    def _worktrees_stale_repo(repo: Path) -> Path:
+        """Build main, a merged pushed old-spike, stacked feat-api/feat-auth, and a dirty fix-log worktree.
+
+        Returns:
+            Path: The fix-log worktree.
+        """
+        create_tmp_branch(repo, "old-spike")
+        create_tmp_commit(repo, "spike")
+        push_tmp_branch(repo, "old-spike")
+        merge_tmp_branch(repo, "old-spike", "main")
+        create_tmp_branch(repo, "feat-api")
+        create_tmp_commit(repo, "api")
+        push_tmp_branch(repo, "feat-api")
+        create_tmp_branch(repo, "feat-auth")
+        create_tmp_commit(repo, "auth one")
+        push_tmp_branch(repo, "feat-auth")
+        create_tmp_commit(repo, "auth two")
+        checkout_tmp_branch(repo, "main")
+        worktree = create_tmp_worktree(repo, "fix-log")
+        create_tmp_commit(worktree, "log fix")
+        (worktree / "scratch.txt").write_text("x\n")
+        checkout_tmp_branch(repo, "feat-auth")
+        return worktree
+
+    @pytest.mark.parametrize(
+        ("style", "node", "wt", "stale"),
+        [
+            ("unicode", "◌", "⌂ ", "(old-spike ⇅ merged)"),
+            ("ascii", "o", "wt:", "(old-spike = merged)"),
+        ],
+    )
+    def test_log_graph_worktrees_and_stale(self, tmp_git_repo, mocker, style, node, wt, stale):
+        """Verify worktree marks, the pseudo-row, the merged suffix, and the clean hint."""
+        # Given
+        mocker.patch.object(log_graph, "config", GxConfig(graph_style=style, nerd_font=False))
+        self._worktrees_stale_repo(tmp_git_repo)
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        lines = result.output.rstrip("\n").splitlines()
+        assert result.exit_code == 0
+        pseudo = [i for i, line in enumerate(lines) if "uncommitted: 1 untracked" in line]
+        assert len(pseudo) == 1
+        assert lines[pseudo[0]].lstrip(" |│").startswith(node)
+        assert "fix-log" in lines[pseudo[0] + 1]
+        assert f"(fix-log {wt}" in result.output
+        assert stale in result.output
+        assert lines[-1] == "1 branch can be cleaned up: gx clean"
+        assert "feat-auth (current)" in lines[-2]
+
+    def test_log_graph_dirty_current_branch(self, tmp_git_repo, mocker):
+        """Verify a dirty current branch gets a pseudo-row above its tip."""
+        # Given a staged new file and a modified tracked file
+        mocker.patch.object(log_graph, "config", GxConfig(graph_style="unicode", nerd_font=False))
+        create_tmp_branch(tmp_git_repo, "feat")
+        create_tmp_commit(tmp_git_repo, "one")
+        (tmp_git_repo / "staged.txt").write_text("s\n")
+        _run_git("add", "staged.txt", cwd=tmp_git_repo)
+        (tmp_git_repo / "README.md").write_text("changed\n")
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        lines = result.output.splitlines()
+        assert result.exit_code == 0
+        assert "uncommitted: 1 staged, 1 modified" in result.output
+        idx = next(i for i, line in enumerate(lines) if "uncommitted:" in line)
+        assert lines[idx].lstrip(" |│").startswith("◌")
+        assert "[feat" in lines[idx + 1]
+
+    def test_log_graph_from_inside_worktree(self, tmp_git_repo, monkeypatch, mocker):
+        """Verify main shows a worktree suffix named after the main repo when run from a worktree."""
+        # Given
+        mocker.patch.object(log_graph, "config", GxConfig(graph_style="unicode", nerd_font=False))
+        worktree = self._worktrees_stale_repo(tmp_git_repo)
+        checkout_tmp_branch(tmp_git_repo, "main")
+        push_tmp_branch(tmp_git_repo)
+        monkeypatch.chdir(worktree)
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        assert f"(main ⇅ ⌂ {tmp_git_repo.name})" in result.output
+
+    def test_log_graph_never_pushed_branch_not_flagged(self, tmp_git_repo, mocker):
+        """Verify a merged-looking branch without an upstream is not flagged stale."""
+        # Given a never-pushed branch with no commits of its own
+        mocker.patch.object(log_graph, "config", GxConfig(graph_style="unicode", nerd_font=False))
+        create_tmp_branch(tmp_git_repo, "new")
+        checkout_tmp_branch(tmp_git_repo, "main")
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        assert "(new)" in result.output
+        assert "merged" not in result.output
+        assert "gx clean" not in result.output
+
+    @pytest.mark.parametrize(("style", "wt"), [("unicode", "⌂ "), ("ascii", "wt:")])
+    def test_log_graph_full_keeps_pseudo_row_and_hint(self, tmp_git_repo, mocker, style, wt):
+        """Verify --full keeps the pseudo-row, worktree mark, legend, and the clean hint."""
+        # Given
+        mocker.patch.object(log_graph, "config", GxConfig(graph_style=style, nerd_font=False))
+        self._worktrees_stale_repo(tmp_git_repo)
+        # When
+        result = runner.invoke(app, ["log", "--graph", "--full"])
+        # Then
+        lines = result.output.rstrip("\n").splitlines()
+        assert result.exit_code == 0
+        pseudo = [i for i, line in enumerate(lines) if "uncommitted: 1 untracked" in line]
+        assert len(pseudo) == 1
+        assert "fix-log" in lines[pseudo[0] + 1]
+        assert f"(fix-log {wt}" in result.output
+        assert lines[-1] == "1 branch can be cleaned up: gx clean"
+        assert "feat-auth (current)" in lines[-2]
+
+
+class TestCleanHintMatchesClean:
+    """The graph hint must count exactly what gx clean would offer without --force."""
+
+    def test_hint_count_equals_stale_analyzer_candidates(self, tmp_git_repo):
+        """Verify worktree, standalone, and dirty-skipped stale branches are counted like clean does."""
+        import re
+
+        from gx.lib.branch import current_branch, default_branch
+        from gx.lib.config import config
+        from gx.lib.stale_analyzer import StaleAnalyzer
+
+        # Given a clean merged worktree, a dirty gone worktree, and standalone merged and gone branches
+        repo = tmp_git_repo
+        for name in ("wt-merged", "wt-dirty", "solo-merged", "solo-gone"):
+            create_tmp_branch(repo, name)
+            create_tmp_commit(repo, f"{name} work")
+            push_tmp_branch(repo, name)
+            checkout_tmp_branch(repo, "main")
+        for name in ("wt-merged", "solo-merged"):
+            merge_tmp_branch(repo, name, "main")
+        push_tmp_branch(repo, "main")
+        for name in ("wt-dirty", "solo-gone"):
+            delete_tmp_remote_branch(repo, name)
+        for name in ("wt-merged", "wt-dirty"):
+            worktree = repo / ".worktrees" / name
+            _run_git("worktree", "add", str(worktree), name, cwd=repo)
+        (repo / ".worktrees" / "wt-dirty" / "scratch.txt").write_text("x\n")
+
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+
+        # Then
+        protected = config.protected_branches | {str(current_branch()), default_branch()}
+        wt, br, skipped = StaleAnalyzer(protected=frozenset(protected)).analyze()
+        assert [c.branch for c in skipped] == ["wt-dirty"]
+        match = re.search(r"(\d+) branch(?:es)? can be cleaned up", result.output)
+        assert match is not None
+        assert int(match.group(1)) == len(wt) + len(br) == 3
+
+    def test_hint_skips_stale_branch_in_main_worktree(self, tmp_git_repo, monkeypatch):
+        """Verify a stale branch checked out in the main worktree is not counted from a linked one."""
+        import re
+
+        from gx.lib.branch import current_branch, default_branch
+        from gx.lib.config import config
+        from gx.lib.stale_analyzer import StaleAnalyzer
+
+        # Given the main worktree on a merged, pushed branch and a linked worktree on another
+        repo = tmp_git_repo
+        create_tmp_branch(repo, "old")
+        create_tmp_commit(repo, "old work")
+        push_tmp_branch(repo, "old")
+        merge_tmp_branch(repo, "old", "main")
+        push_tmp_branch(repo, "main")
+        checkout_tmp_branch(repo, "old")
+        linked = repo.parent / "linked"
+        _run_git("worktree", "add", "-b", "other", str(linked), "main", cwd=repo)
+        monkeypatch.chdir(linked)
+
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+
+        # Then the hint matches what gx clean offers (nothing)
+        protected = config.protected_branches | {str(current_branch()), default_branch()}
+        wt, br, _ = StaleAnalyzer(protected=frozenset(protected)).analyze()
+        assert len(wt) + len(br) == 0
+        assert re.search(r"can be cleaned up", result.output) is None

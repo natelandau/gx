@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import shutil
 from typing import TYPE_CHECKING
 
 from typer.testing import CliRunner
 
 from gx.cli import app
+from tests.conftest import create_tmp_worktree
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -96,3 +98,18 @@ class TestInfoOutsideGitRepo:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["info"])
         assert result.exit_code != 0
+
+
+class TestInfoMissingWorktree:
+    """Integration tests for gx info with a worktree folder removed by hand."""
+
+    def test_info_survives_hand_deleted_worktree(self, tmp_git_repo: Path):
+        """Verify info does not crash when a worktree folder no longer exists."""
+        worktree = create_tmp_worktree(tmp_git_repo, "feat/gone-dir")
+        shutil.rmtree(worktree)
+
+        result = runner.invoke(app, ["info"])
+
+        assert result.exception is None, result.output
+        assert result.exit_code == 0
+        assert "1 missing worktree: git worktree prune" in result.output

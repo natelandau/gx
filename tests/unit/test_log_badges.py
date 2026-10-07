@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 
 from gx.lib.graph_layout import ASCII, BRANCH_SYMBOLS, UNICODE
 from gx.lib.log_badges import (
     ASCII_BADGES,
+    NERD_FOLDER,
     UNICODE_BADGES,
     badge_symbols,
     render_badges,
@@ -28,6 +30,12 @@ def _ctx(
     feat_ahead: int = 0,
     feat_upstream: str = "origin/feat",
     remote_glyphs: Mapping[str, str] | None = None,
+    *,
+    fix_worktree: Path | None = None,
+    fix_ahead: int = 0,
+    fix_gone: bool = False,
+    fix_stale: Literal["merged", "gone"] | None = None,
+    old_stale: Literal["merged", "gone"] | None = None,
 ) -> LogContext:
     branches = {
         "main": BranchState(
@@ -46,6 +54,20 @@ def _ctx(
             ahead=feat_ahead,
         ),
         "solo": BranchState(name="solo", color="magenta", is_current=False, is_default=False),
+        "fix": BranchState(
+            name="fix",
+            color="green",
+            is_current=False,
+            is_default=False,
+            upstream="origin/fix" if fix_ahead or fix_gone else None,
+            ahead=fix_ahead,
+            upstream_gone=fix_gone,
+            worktree=fix_worktree,
+            stale=fix_stale,
+        ),
+        "old": BranchState(
+            name="old", color="magenta", is_current=False, is_default=False, stale=old_stale
+        ),
     }
     return LogContext(
         default="main",
@@ -290,3 +312,38 @@ def test_remote_name_with_slash_finds_its_glyph():
     )
     text = render_badges(RefDecoration(remotes=("team/fork/main",)), ctx, UNICODE_BADGES)
     assert text.plain == f"{GITHUB_GLYPH} team/fork/main"
+
+
+def test_worktree_suffix():
+    """A worktree adds its basename after the name, with a charset-specific prefix."""
+    ctx = _ctx(fix_worktree=Path("/repo/.worktrees/gx-fix-log"))
+    refs = RefDecoration(branches=("fix",))
+    assert render_badges(refs, ctx, UNICODE_BADGES).plain == "(fix ⌂ gx-fix-log)"
+    assert render_badges(refs, ctx, ASCII_BADGES).plain == "(fix wt:gx-fix-log)"
+    nerd = badge_symbols(UNICODE, nerd_font=True)
+    assert render_badges(refs, ctx, nerd).plain == f"(fix {NERD_FOLDER} gx-fix-log)"
+
+
+def test_nerd_font_ignored_for_ascii():
+    """The ASCII charset never uses the nerd font glyph."""
+    assert badge_symbols(ASCII, nerd_font=True) is ASCII_BADGES
+
+
+def test_stale_suffix_is_dim():
+    """The stale suffix is its own dim span while the rest keeps the badge style."""
+    text = render_badges(RefDecoration(branches=("old",)), _ctx(old_stale="merged"), UNICODE_BADGES)
+    assert text.plain == "(old merged)"
+    assert _style_of(text, "merged") == "dim"
+    assert _style_of(text, "(old") == "bold magenta"
+
+
+def test_suffix_order():
+    """Suffixes appear as sync, worktree, then stale."""
+    refs = RefDecoration(branches=("fix",))
+    wt = Path("/w/gx-fix")
+    gone = _ctx(fix_worktree=wt, fix_gone=True, fix_stale="gone")
+    assert render_badges(refs, gone, UNICODE_BADGES).plain == "(fix ⌂ gx-fix gone)"
+    live = _ctx(fix_worktree=wt, fix_ahead=1)
+    assert render_badges(refs, live, UNICODE_BADGES).plain == "(fix ↑1 ⌂ gx-fix)"
+    merged = _ctx(fix_worktree=wt, fix_ahead=1, fix_stale="merged")
+    assert render_badges(refs, merged, UNICODE_BADGES).plain == "(fix ↑1 ⌂ gx-fix merged)"

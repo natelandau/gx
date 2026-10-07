@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 import typer
@@ -37,18 +37,28 @@ from gx.lib.graph_layout import (
     PipeKind,
     Row,
     charset_for,
+    entering_lanes,
     fade_cells,
     fold_cells,
     layout,
     row_cells,
+    uncommitted_cells,
 )
-from gx.lib.log_badges import badge_symbols, render_badges
-from gx.lib.log_context import DIM, LogContext, build_log_context, dimmed, read_branch_refs
+from gx.lib.log_badges import BadgeSymbols, badge_symbols, render_badges
+from gx.lib.log_context import (
+    DIM,
+    BranchState,
+    LogContext,
+    build_log_context,
+    dimmed,
+    read_branch_refs,
+)
 from gx.lib.refs import parse_refs
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
+    from gx.lib.log_context import FileCounts
     from gx.lib.refs import RefDecoration
 
 _FIELD_SEP = "\x1f"
@@ -93,6 +103,7 @@ class GraphEntry:
 
     commit: CommitRecord
     row: Row
+    uncommitted_above: bool = False
 
 
 @dataclass(frozen=True)
@@ -105,7 +116,18 @@ class LaneFold:
     row: Row | None = None
 
 
-GraphLine = GraphEntry | LaneFold
+@dataclass(frozen=True)
+class UncommittedRow:
+    """A pseudo-row for a branch's uncommitted changes, drawn above its tip commit."""
+
+    branch: str
+    counts: FileCounts
+    row: Row
+    node_up: bool
+    named: bool
+
+
+GraphLine = GraphEntry | LaneFold | UncommittedRow
 
 
 def parse_commit_line(line: str) -> CommitRecord | None:
@@ -215,6 +237,58 @@ def fold_entries(entries: list[GraphEntry], keep: frozenset[str]) -> list[GraphE
     return out
 
 
+def describe_uncommitted(counts: FileCounts) -> str:
+    """Summarize working-tree changes for the pseudo-row.
+
+    Args:
+        counts: Staged, modified, unmerged, and untracked file counts.
+
+    Returns:
+        str: `uncommitted: ` followed by each non-zero count.
+    """
+    labels = ("staged", "modified", "conflicted", "untracked")
+    parts = [f"{n} {label}" for n, label in zip(counts, labels, strict=True) if n]
+    return f"uncommitted: {', '.join(parts)}"
+
+
+def insert_uncommitted(lines: Sequence[GraphLine], context: LogContext) -> list[GraphLine]:
+    """Add a pseudo-row above the tip of every branch with uncommitted changes.
+
+    Branches sharing a tip stack their rows, current branch first, then by name.
+
+    Args:
+        lines: Graph lines in display order.
+        context: Branch context supplying each branch's tip and change counts.
+
+    Returns:
+        list[GraphLine]: The lines with pseudo-rows inserted; unchanged when none apply.
+    """
+    dirty_by_tip: dict[str, list[tuple[str, FileCounts]]] = {}
+    for branch in sorted(context.branches.values(), key=lambda b: (not b.is_current, b.name)):
+        if branch.dirty and branch.tip is not None:
+            dirty_by_tip.setdefault(branch.tip, []).append((branch.name, branch.dirty))
+
+    out: list[GraphLine] = []
+    for line in lines:
+        if not isinstance(line, GraphEntry) or line.commit.sha not in dirty_by_tip:
+            out.append(line)
+            continue
+        dirty = dirty_by_tip[line.commit.sha]
+        entered = line.row.lane in entering_lanes(line.row)
+        out.extend(
+            UncommittedRow(
+                branch=name,
+                counts=counts,
+                row=line.row,
+                node_up=index > 0 or entered,
+                named=len(dirty) > 1,
+            )
+            for index, (name, counts) in enumerate(dirty)
+        )
+        out.append(replace(line, uncommitted_above=True))
+    return out
+
+
 def short_age(timestamp: int, now: int) -> str:
     """Format the time since a commit as a compact age such as `40m` or `3d`.
 
@@ -286,6 +360,21 @@ def render_line(
         width: Available columns, or None to always include the metadata.
         show_author: Whether to append the author after the age.
     """
+    if isinstance(line, UncommittedRow):
+        branch = context.branches.get(line.branch)
+        color = branch.color if branch is not None else ""
+        tip_sha = line.row.sha
+        text = _graph_text(
+            uncommitted_cells(line.row, node_up=line.node_up),
+            charset,
+            context,
+            node_style=color if tip_sha in context.head_reachable else dimmed(color),
+        )
+        label = describe_uncommitted(line.counts) + (f" on {line.branch}" if line.named else "")
+        text.append(" ")
+        text.append(label, style="dim italic")
+        return text
+
     if isinstance(line, LaneFold):
         row = line.row
         node_style = dimmed(context.commit_style(row.sha)) if row else DIM
@@ -305,9 +394,12 @@ def render_line(
     commit = line.commit
     owner = context.owner(commit.sha)
     refs = parse_refs(commit.refs, context.remotes)
-    symbols = badge_symbols(charset)
+    symbols = badge_symbols(charset, nerd_font=config.nerd_font)
+    cells = row_cells(line.row, _node_kind(line, refs))
+    if line.uncommitted_above:
+        cells = [replace(c, up=True) if c.node is not None else c for c in cells]
     text = _graph_text(
-        row_cells(line.row, _node_kind(line, refs)),
+        cells,
         charset,
         context,
         node_style=context.commit_style(commit.sha),
@@ -337,7 +429,29 @@ def render_line(
     return text
 
 
-def render_legend(context: LogContext, charset: Charset, width: int | None) -> Text | None:
+def _legend_marks(
+    branch: BranchState, context: LogContext, symbols: BadgeSymbols, *, mark_local: bool
+) -> list[str]:
+    marks: list[str] = []
+    if branch.is_current:
+        marks.append("(current)")
+    if mark_local and not branch.is_default and not branch.has_remote_upstream:
+        marks.append("local")
+    if branch.worktree is not None:
+        marks.append(symbols.worktree.strip().removesuffix(":"))
+    # A tip in the window shows its changes as a pseudo-row, so only off-window ones need a mark.
+    if branch.dirty and branch.tip not in context.parents:
+        marks.append(symbols.dirty)
+    return marks
+
+
+def render_legend(
+    context: LogContext,
+    charset: Charset,
+    width: int | None,
+    *,
+    symbols: BadgeSymbols | None = None,
+) -> Text | None:
     """Build the one-line legend mapping branch colors to names.
 
     Lists the default branch first, then the current branch, then the rest by name.
@@ -348,6 +462,7 @@ def render_legend(context: LogContext, charset: Charset, width: int | None) -> T
         context: Branch context supplying the visible branches and their colors.
         charset: Glyph tables, which decide the bullet character.
         width: Available columns, or None for no limit.
+        symbols: Glyphs for the worktree and dirty marks; defaults to the charset's own.
 
     Returns:
         Text | None: The legend, or None when no branch besides the default is visible.
@@ -358,6 +473,7 @@ def render_legend(context: LogContext, charset: Charset, width: int | None) -> T
     if not any(not b.is_default for b in branches):
         return None
 
+    symbols = symbols or badge_symbols(charset)
     bullet = "*" if charset is ASCII else "●"
     # With no tracked branch every branch is local, so the mark would say nothing.
     mark_local = any(b.has_remote_upstream for b in branches)
@@ -366,12 +482,9 @@ def render_legend(context: LogContext, charset: Charset, width: int | None) -> T
         entry = Text()
         entry.append(bullet, style=branch.color)
         entry.append(f" {branch.name}")
-        if branch.is_current:
+        for mark in _legend_marks(branch, context, symbols, mark_local=mark_local):
             entry.append(" ")
-            entry.append("(current)", style="dim")
-        if mark_local and not branch.is_default and not branch.has_remote_upstream:
-            entry.append(" ")
-            entry.append("local", style="dim")
+            entry.append(mark, style="dim")
         entries.append(entry)
 
     sep = "  "
@@ -395,6 +508,24 @@ def render_legend(context: LogContext, charset: Charset, width: int | None) -> T
             remaining -= len(sep) + entry.cell_len
         legend.append_text(entry)
     return legend
+
+
+def render_clean_hint(context: LogContext) -> Text | None:
+    """Build the line telling how many branches `gx clean` can remove.
+
+    Args:
+        context: Branch context holding every stale local branch.
+
+    Returns:
+        Text | None: The dim hint, or None when no branch is stale.
+    """
+    count = len(context.stale)
+    if not count:
+        return None
+    noun = "branch" if count == 1 else "branches"
+    hint = Text()
+    hint.append(f"{count} {noun} can be cleaned up: gx clean", style="dim")
+    return hint
 
 
 def join_blocks(main: list[CommitRecord], extra: list[CommitRecord]) -> list[CommitRecord]:
@@ -476,6 +607,7 @@ class LogGraph:
         context = build_log_context(
             {c.sha: c.parents for c in commits}, default=default, default_tip=tip, refs=refs
         )
+        lines = insert_uncommitted(lines, context)
         now = int(time.time())
         out = [
             render_line(
@@ -486,9 +618,16 @@ class LogGraph:
         fade = fade_cells(rows[-1])
         if fade is not None:
             out.append(_graph_text(fade, charset, context, node_style="dim"))
-        legend = render_legend(context, charset, width)
+        legend = render_legend(
+            context, charset, width, symbols=badge_symbols(charset, nerd_font=config.nerd_font)
+        )
+        hint = render_clean_hint(context)
         if legend is not None:
             out.extend([Text(""), legend])
+        if hint is not None:
+            if legend is None:
+                out.append(Text(""))
+            out.append(hint)
         return out
 
     @staticmethod

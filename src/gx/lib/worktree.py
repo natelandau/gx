@@ -42,10 +42,19 @@ class WorktreeInfo:
     is_merged: bool
     is_gone: bool
     is_empty: bool
+    is_locked: bool = False
 
 
-def _parse_worktree_porcelain(output: str) -> list[dict[str, str]]:
-    """Parse `git worktree list --porcelain` output into raw worktree dicts."""
+def parse_worktree_porcelain(output: str) -> list[dict[str, str]]:
+    """Parse `git worktree list --porcelain` output into raw worktree dicts.
+
+    Args:
+        output: Raw porcelain text.
+
+    Returns:
+        One dict per worktree with `path`, plus `commit`, `branch`, `bare`, `detached`,
+        `locked`, and `prunable` when git reports them.
+    """
     worktrees: list[dict[str, str]] = []
     current: dict[str, str] = {}
 
@@ -63,8 +72,10 @@ def _parse_worktree_porcelain(output: str) -> list[dict[str, str]]:
         elif line.startswith("branch "):
             ref = line.removeprefix("branch ")
             current["branch"] = ref.removeprefix("refs/heads/")
-        elif line == "bare":
-            current["bare"] = ""
+        else:
+            flag, _, reason = line.partition(" ")
+            if flag in {"bare", "detached", "locked", "prunable"}:
+                current[flag] = reason
 
     if current:
         worktrees.append(current)
@@ -72,18 +83,41 @@ def _parse_worktree_porcelain(output: str) -> list[dict[str, str]]:
     return worktrees
 
 
-def list_worktrees() -> list[WorktreeInfo]:
+def _is_missing(raw: dict[str, str]) -> bool:
+    """Report whether a parsed worktree entry has no folder to run git in.
+
+    Args:
+        raw: One entry from `parse_worktree_porcelain`.
+
+    Returns:
+        bool: True when git reports the entry as prunable or its folder does not exist.
+    """
+    return "prunable" in raw or not Path(raw["path"]).exists()
+
+
+def read_worktree_entries() -> list[dict[str, str]]:
+    """Read every worktree registration once, for callers that need several views of it.
+
+    Returns:
+        list[dict[str, str]]: Parsed `git worktree list --porcelain` entries, empty when git fails.
+    """
+    result = git("worktree", "list", "--porcelain")
+    return parse_worktree_porcelain(result.stdout) if result.ok else []
+
+
+def list_worktrees(entries: list[dict[str, str]] | None = None) -> list[WorktreeInfo]:
     """List all worktrees with enriched branch status.
 
     Parses `git worktree list --porcelain` and enriches each entry with
     is_merged, is_gone, and is_empty flags by querying branch status.
-    The first worktree in the list is marked as is_main.
-    """
-    result = git("worktree", "list", "--porcelain")
-    if not result.ok:
-        return []
+    The first worktree in the list is marked as is_main. Worktrees git reports as
+    prunable, or whose directory no longer exists, are left out because running
+    git inside them fails.
 
-    raw_worktrees = _parse_worktree_porcelain(result.stdout)
+    Args:
+        entries: Registrations already read with `read_worktree_entries`, or None to read them.
+    """
+    raw_worktrees = entries if entries is not None else read_worktree_entries()
     if not raw_worktrees:
         return []
 
@@ -96,6 +130,8 @@ def list_worktrees() -> list[WorktreeInfo]:
     worktrees: list[WorktreeInfo] = []
 
     for i, raw in enumerate(raw_worktrees):
+        if _is_missing(raw):
+            continue
         branch = raw.get("branch")
 
         if enrich and branch is not None and "bare" not in raw:
@@ -115,10 +151,46 @@ def list_worktrees() -> list[WorktreeInfo]:
                 is_merged=wt_merged,
                 is_gone=wt_gone,
                 is_empty=wt_empty,
+                is_locked="locked" in raw,
             )
         )
 
     return worktrees
+
+
+def missing_worktrees(entries: list[dict[str, str]] | None = None) -> list[Path]:
+    """List registered worktrees whose folder is gone and that `git worktree prune` removes.
+
+    `list_worktrees` leaves these out, so callers use this to tell the user that
+    `git worktree prune` has something to clean. Locked entries are left out because
+    prune keeps them.
+
+    Args:
+        entries: Registrations already read with `read_worktree_entries`, or None to read them.
+
+    Returns:
+        list[Path]: Paths of the missing worktrees, empty when git fails.
+    """
+    raw_worktrees = entries if entries is not None else read_worktree_entries()
+    return [Path(raw["path"]) for raw in raw_worktrees if _is_missing(raw) and "locked" not in raw]
+
+
+def checked_out_branches(entries: list[dict[str, str]] | None = None) -> frozenset[str]:
+    """List branches git refuses to delete because a worktree has them checked out.
+
+    Prunable entries are left out, since `git worktree prune` releases their branches.
+    Locked entries count even when their folder is gone, because prune keeps them.
+
+    Args:
+        entries: Registrations already read with `read_worktree_entries`, or None to read them.
+
+    Returns:
+        frozenset[str]: Branch names, empty when git fails.
+    """
+    raw_worktrees = entries if entries is not None else read_worktree_entries()
+    return frozenset(
+        raw["branch"] for raw in raw_worktrees if "branch" in raw and "prunable" not in raw
+    )
 
 
 def create_worktree(path: Path, branch: str, start_point: str | None = None) -> CompletedCommand:
@@ -129,6 +201,8 @@ def create_worktree(path: Path, branch: str, start_point: str | None = None) -> 
         branch: The name of the new branch to create.
         start_point: The commit/branch to base the new branch on. Defaults to HEAD.
     """
+    # A target path still registered to a deleted folder makes `worktree add` refuse.
+    git("worktree", "prune")
     args = ["worktree", "add", "--no-track", "-b", branch, str(path)]
     if start_point is not None:
         args.append(start_point)

@@ -1,11 +1,19 @@
 """Tests for gx feat command."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pytest
 import typer
-from nclutils.sh import CompletedCommand
 
 from tests.conftest import checkout_tmp_branch, create_tmp_branch
 from tests.unit.conftest import _completed
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nclutils.sh import CompletedCommand
 
 
 class TestNextFeatNumber:
@@ -145,10 +153,10 @@ class TestNormalizeName:
 class TestFeatBranchMode:
     """Tests for feat command in branch mode."""
 
-    def _make_git_side_effect(  # type: ignore[return]
+    def _make_git_side_effect(
         self,
         existing_branches: str = "",
-    ) -> None:
+    ) -> Callable[..., CompletedCommand]:
         """Create a git side_effect function for branch mode tests."""
 
         def side_effect(*args: str, **kwargs: str) -> CompletedCommand:

@@ -8,7 +8,7 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from rich.text import Text
@@ -31,22 +31,35 @@ class BadgeSymbols:
     behind: str
     in_sync: str
     unpushed: str
+    worktree: str
+    dirty: str
 
 
-UNICODE_BADGES = BadgeSymbols(tag="◆", ahead="↑", behind="↓", in_sync="⇅", unpushed="↑")
-ASCII_BADGES = BadgeSymbols(tag="#", ahead="^", behind="v", in_sync="=", unpushed="+")
+NERD_FOLDER = "\uf07b"
+
+UNICODE_BADGES = BadgeSymbols(
+    tag="◆", ahead="↑", behind="↓", in_sync="⇅", unpushed="↑", worktree="⌂ ", dirty="◌"
+)
+ASCII_BADGES = BadgeSymbols(
+    tag="#", ahead="^", behind="v", in_sync="=", unpushed="+", worktree="wt:", dirty="o"
+)
 
 
-def badge_symbols(charset: Charset) -> BadgeSymbols:
+def badge_symbols(charset: Charset, *, nerd_font: bool = False) -> BadgeSymbols:
     """Pick the badge glyphs matching a graph charset.
 
     Args:
         charset: The charset the graph is drawn with.
+        nerd_font: Use the nerd font folder glyph for worktrees; ignored for ASCII.
 
     Returns:
         ASCII symbols for the ASCII charset, unicode symbols otherwise.
     """
-    return ASCII_BADGES if charset is ASCII else UNICODE_BADGES
+    if charset is ASCII:
+        return ASCII_BADGES
+    if nerd_font:
+        return replace(UNICODE_BADGES, worktree=f"{NERD_FOLDER} ")
+    return UNICODE_BADGES
 
 
 def sync_suffix(branch: BranchState, symbols: BadgeSymbols) -> str:
@@ -78,6 +91,35 @@ def _is_in_sync(branch: BranchState) -> bool:
     return _has_live_upstream(branch) and not (branch.ahead or branch.behind)
 
 
+def _local_badge(
+    name: str,
+    state: BranchState | None,
+    collapsed: set[str],
+    symbols: BadgeSymbols,
+    brackets: tuple[str, str],
+    style: tuple[str, ...],
+) -> Text:
+    label = name
+    stale = ""
+    color = ""
+    if state is not None:
+        color = state.color
+        sync = symbols.in_sync if state.upstream in collapsed else sync_suffix(state, symbols)
+        if sync:
+            label += f" {sync}"
+        if state.worktree is not None:
+            label += f" {symbols.worktree}{state.worktree.name}"
+        stale = state.stale or ""
+    badge_style = _style(*style, color)
+    # Per-segment styles, not a base style, so join() cannot paint over the dim suffix.
+    text = Text()
+    text.append(f"{brackets[0]}{label}", style=badge_style)
+    if stale:
+        text.append(f" {stale}", style="dim")
+    text.append(brackets[1], style=badge_style)
+    return text
+
+
 def render_badges(refs: RefDecoration, context: LogContext, symbols: BadgeSymbols) -> Text:
     """Render the refs decorating a commit as styled badges.
 
@@ -100,13 +142,9 @@ def render_badges(refs: RefDecoration, context: LogContext, symbols: BadgeSymbol
             collapsed.add(str(state.upstream))
 
     def local(name: str, open_: str, close: str, *style: str) -> Text:
-        state = context.branches.get(name)
-        suffix = ""
-        if state is not None:
-            suffix = symbols.in_sync if state.upstream in collapsed else sync_suffix(state, symbols)
-        label = f"{name} {suffix}" if suffix else name
-        color = state.color if state is not None else ""
-        return Text(f"{open_}{label}{close}", style=_style(*style, color))
+        return _local_badge(
+            name, context.branches.get(name), collapsed, symbols, (open_, close), style
+        )
 
     badges: list[Text] = []
     if refs.head is not None:

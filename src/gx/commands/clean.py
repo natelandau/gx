@@ -24,6 +24,14 @@ def _fetch() -> None:
         raise_on_error(git("fetch", "--prune"))
 
 
+def _prune_worktrees() -> None:
+    """Drop registrations of worktrees whose folder is gone.
+
+    A branch stays locked to a missing worktree until it is pruned, so deleting it would fail.
+    """
+    raise_on_error(git("worktree", "prune"))
+
+
 def _display_candidates(
     worktree_candidates: list[CleanCandidate],
     branch_candidates: list[CleanCandidate],
@@ -146,9 +154,9 @@ def clean(
     - [bold]gone[/bold] -- upstream tracking branch was deleted on the remote
     - [bold]empty[/bold] -- zero commits ahead of the default branch
 
-    The current branch, main, master, and develop are always protected from cleanup. Only branches with a configured upstream are considered (except for "gone" branches, where the upstream was already deleted).
+    The current branch, the default branch, and the protected branches (main, master, and develop by default) are never cleaned up. Only branches with a configured upstream are considered (except for "gone" branches, where the upstream was already deleted).
 
-    Worktrees are checked first, then standalone branches. Dirty worktrees are skipped unless --force is used. A confirmation prompt lists everything that will be removed before any deletion happens.
+    Registrations of worktrees whose folder was deleted are pruned first. Worktrees are checked next, then standalone branches. Dirty worktrees are skipped unless --force is used. Locked worktrees, and branches that a worktree has checked out, are always skipped. A confirmation prompt lists everything that will be removed before any deletion happens.
 
     [bold]Examples:[/bold]
 
@@ -164,6 +172,7 @@ def clean(
     check_git_repo()
 
     _fetch()
+    _prune_worktrees()
 
     cur = current_branch()
     protected = config.protected_branches | (frozenset({cur}) if cur else frozenset())

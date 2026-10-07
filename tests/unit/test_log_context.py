@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import itertools
+import shutil
 import zlib
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from nclutils.sh import CompletedCommand
 
+from gx.lib import log_context
 from gx.lib.config import GxConfig
 from gx.lib.git import git
 from gx.lib.graph_layout import Pipe, PipeKind
 from gx.lib.log_context import (
     PALETTE,
+    BranchRefs,
     BranchState,
+    Checkout,
     LogContext,
     Tracking,
     assign_colors,
@@ -23,6 +28,8 @@ from gx.lib.log_context import (
     parse_track,
     reachable,
     read_branch_refs,
+    read_checkouts,
+    read_merged,
     read_unpushed,
 )
 from gx.lib.refs import GIT_GLYPH
@@ -31,13 +38,18 @@ from tests.conftest import (
     checkout_tmp_branch,
     create_tmp_branch,
     create_tmp_commit,
+    create_tmp_worktree,
     delete_tmp_remote_branch,
     detach_tmp_head,
+    make_tmp_dirty,
+    merge_tmp_branch,
     push_tmp_branch,
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from collections.abc import Callable
+
+    from pytest_mock import MockerFixture
 
 
 def _slot(name: str) -> int:
@@ -514,7 +526,7 @@ def test_failed_ref_listing_is_logged(tmp_git_repo: Path, mocker):
     # Given for-each-ref failing
     real_git = git
 
-    def fake_git(*args: str, **kwargs: object) -> CompletedCommand:
+    def fake_git(*args: str, **kwargs: Any) -> CompletedCommand:
         if args[0] == "for-each-ref":
             return CompletedCommand(
                 argv=("git",), returncode=1, stdout="", stderr="boom", duration=0.0, cwd=None
@@ -754,3 +766,351 @@ def test_remote_glyphs_follow_nerd_font(tmp_git_repo: Path, mocker):
     context = build_log_context(parents, default="main", default_tip=main_tip)
     assert context.remotes == {"origin"}
     assert context.remote_glyphs == {"origin": GIT_GLYPH}
+
+
+def test_read_checkouts_lists_worktrees_with_dirty_counts(tmp_git_repo: Path):
+    """Verify each worktree maps to its path and uncommitted counts."""
+    # Given
+    wt = create_tmp_worktree(tmp_git_repo, "fix-log")
+    (wt / "a.txt").write_text("a")
+
+    # When
+    checkouts = read_checkouts(current="main")
+
+    # Then
+    assert checkouts["fix-log"].path.name == wt.name
+    assert checkouts["fix-log"].dirty == (0, 0, 0, 1)
+    assert checkouts["main"].dirty is None
+
+
+def test_current_branch_dirty_is_read_from_cwd(tmp_git_repo: Path):
+    """Verify the current branch's dirty counts come from the working directory."""
+    # Given
+    make_tmp_dirty(tmp_git_repo)
+
+    # Then
+    assert read_checkouts(current="main")["main"].dirty == (0, 0, 0, 1)
+
+
+def test_prunable_worktree_is_skipped(tmp_git_repo: Path, mocker: MockerFixture):
+    """Verify a worktree whose directory vanished is neither listed nor queried."""
+    # Given
+    wt = create_tmp_worktree(tmp_git_repo, "gone-dir")
+    shutil.rmtree(wt)
+    status = mocker.spy(log_context, "branch_file_statuses")
+
+    # When
+    checkouts = read_checkouts(current="main")
+
+    # Then
+    assert "gone-dir" not in checkouts
+    assert all(call.kwargs["wt_path"] != wt for call in status.call_args_list)
+
+
+def test_detached_worktree_is_skipped(tmp_git_repo: Path):
+    """Verify a detached worktree is not listed."""
+    # Given
+    wt = create_tmp_worktree(tmp_git_repo, "tmp")
+    _run_git("checkout", "--detach", cwd=wt)
+
+    # Then
+    assert "tmp" not in read_checkouts(current="main")
+
+
+def test_checkouts_from_inside_a_linked_worktree(tmp_git_repo: Path, monkeypatch):
+    """Verify only checkouts other than the one in use carry a worktree path."""
+    # Given
+    wt = create_tmp_worktree(tmp_git_repo, "feat")
+    create_tmp_commit(wt, "feat one")
+    monkeypatch.chdir(wt)
+    parents, main_tip = _window(tmp_git_repo)
+
+    # When
+    context = build_log_context(parents, default="main", default_tip=main_tip)
+
+    # Then
+    assert context.current == "feat"
+    assert context.branches["feat"].worktree is None
+    assert context.branches["main"].worktree is not None
+    assert context.branches["main"].worktree.name == tmp_git_repo.name
+
+
+def test_read_merged(tmp_git_repo: Path):
+    """Verify merged branches are listed and unmerged ones are not."""
+    # Given
+    create_tmp_branch(tmp_git_repo, "done")
+    create_tmp_commit(tmp_git_repo, "x")
+    merge_tmp_branch(tmp_git_repo, "done", "main")
+    create_tmp_branch(tmp_git_repo, "open")
+    create_tmp_commit(tmp_git_repo, "y")
+
+    # When
+    merged = read_merged("main")
+
+    # Then
+    assert "done" in merged
+    assert "open" not in merged
+    assert read_merged(None) == frozenset()
+
+
+FEAT_TIP = "f1"
+_STALE_PARENTS: dict[str, tuple[str, ...]] = {"m1": (), FEAT_TIP: ("m1",)}
+
+
+def _stale_refs(tips: dict[str, str], current: str, tracking: dict[str, Tracking]) -> BranchRefs:
+    return BranchRefs(tips=tips, current=current, head_sha=tips[current], tracking=tracking)
+
+
+def _track(*, gone: bool = False) -> Tracking:
+    return Tracking(
+        upstream="origin/x", upstream_ref="refs/remotes/origin/x", ahead=0, behind=0, gone=gone
+    )
+
+
+def test_stale_rules(mocker: MockerFixture):
+    """Verify gone wins, merged needs an upstream, and protected/current/default are excluded."""
+    # Given
+    mocker.patch("gx.lib.log_context.config", GxConfig(protected_branches=frozenset({"develop"})))
+    tips = {
+        "main": "m1",
+        "done": "m1",
+        "spike": "m1",
+        "old": "m1",
+        "develop": "m1",
+        "feat": FEAT_TIP,
+    }
+    tracking = {
+        "main": _track(),
+        "done": _track(),
+        "old": _track(gone=True),
+        "develop": _track(),
+        "feat": _track(),
+    }
+    merged = frozenset({"done", "spike", "old", "develop", "feat", "main"})
+
+    # When
+    context = build_log_context(
+        _STALE_PARENTS,
+        default="main",
+        default_tip="m1",
+        refs=_stale_refs(tips, "feat", tracking),
+        remotes={},
+        checkouts={},
+        merged=merged,
+    )
+
+    # Then
+    assert context.stale == {"done", "old"}
+    assert context.branches["done"].stale == "merged"
+    assert context.branches["old"].stale == "gone"
+    assert context.branches["spike"].stale is None
+
+
+def test_merged_without_upstream_is_not_stale(tmp_git_repo: Path):
+    """Verify a never-pushed branch sitting at main is not stale."""
+    # Given
+    create_tmp_branch(tmp_git_repo, "new")
+    checkout_tmp_branch(tmp_git_repo, "main")
+    parents, main_tip = _window(tmp_git_repo)
+
+    # When
+    context = build_log_context(parents, default="main", default_tip=main_tip)
+
+    # Then
+    assert context.stale == frozenset()
+
+
+def test_stale_counts_branches_outside_window():
+    """Verify a stale branch whose tip is outside the window still counts."""
+    # Given
+    tips = {"main": "m1", "feat": FEAT_TIP, "far": "zz"}
+    tracking = {"far": _track(gone=True)}
+
+    # When
+    context = build_log_context(
+        _STALE_PARENTS,
+        default="main",
+        default_tip="m1",
+        refs=_stale_refs(tips, "feat", tracking),
+        remotes={},
+        checkouts={},
+        merged=frozenset(),
+    )
+
+    # Then
+    assert "far" in context.stale
+    assert "far" not in context.branches
+
+
+def test_dirty_checkout_is_visible_outside_window():
+    """Verify a dirty checked-out branch gets a state and color even outside the window."""
+    # Given
+    tips = {"main": "m1", "feat": FEAT_TIP, "wt": "zz"}
+    checkouts = {"wt": Checkout(path=Path("/x/gx-wt"), dirty=(0, 1, 0, 0))}
+
+    # When
+    context = build_log_context(
+        _STALE_PARENTS,
+        default="main",
+        default_tip="m1",
+        refs=_stale_refs(tips, "feat", {}),
+        remotes={},
+        checkouts=checkouts,
+        merged=frozenset(),
+    )
+
+    # Then
+    assert context.branches["wt"].dirty == (0, 1, 0, 0)
+    assert context.branches["wt"].color in PALETTE
+
+
+def test_worktree_set_only_for_other_checkouts():
+    """Verify the current branch has no worktree path while other checkouts do."""
+    # Given
+    tips = {"main": "m1", "feat": FEAT_TIP, "fix": "m1"}
+    checkouts = {
+        "feat": Checkout(path=Path("/x/gx"), dirty=None),
+        "fix": Checkout(path=Path("/x/gx-fix"), dirty=None),
+    }
+
+    # When
+    context = build_log_context(
+        _STALE_PARENTS,
+        default="main",
+        default_tip="m1",
+        refs=_stale_refs(tips, "feat", {}),
+        remotes={},
+        checkouts=checkouts,
+        merged=frozenset(),
+    )
+
+    # Then
+    assert context.branches["feat"].worktree is None
+    assert context.branches["fix"].worktree == Path("/x/gx-fix")
+    assert context.branches["feat"].tip == FEAT_TIP
+
+
+def _failed_git(
+    real_git: Callable[..., CompletedCommand], subcommand: str
+) -> Callable[..., CompletedCommand]:
+    """Build a git double that fails the given subcommand and runs everything else."""
+
+    def fake_git(*args: str, **kwargs: Any) -> CompletedCommand:
+        if args[0] == subcommand:
+            return CompletedCommand(
+                argv=("git",), returncode=1, stdout="", stderr="boom", duration=0.0, cwd=None
+            )
+        return real_git(*args, **kwargs)
+
+    return fake_git
+
+
+def test_read_checkouts_returns_empty_when_worktree_list_fails(tmp_git_repo: Path, mocker):
+    """Verify a failing worktree listing yields no checkouts and a debug log."""
+    mocker.patch("gx.lib.log_context.git", side_effect=_failed_git(git, "worktree"))
+    debug = mocker.patch("gx.lib.log_context.pp.debug")
+
+    assert read_checkouts(current="main") == {}
+    debug.assert_called_once()
+    assert "worktree" in debug.call_args.args[0]
+
+
+def test_read_merged_returns_empty_when_git_fails(tmp_git_repo: Path, mocker):
+    """Verify a failing merged listing yields an empty set and a debug log."""
+    mocker.patch("gx.lib.log_context.git", side_effect=_failed_git(git, "branch"))
+    debug = mocker.patch("gx.lib.log_context.pp.debug")
+
+    assert read_merged("main") == frozenset()
+    debug.assert_called_once()
+    assert "merged" in debug.call_args.args[0]
+
+
+def test_default_branch_is_not_flagged_merged():
+    """Verify the default branch is never reported as merged into itself."""
+    tips = {"main": "m1", "feat": FEAT_TIP}
+
+    context = build_log_context(
+        _STALE_PARENTS,
+        default="main",
+        default_tip="m1",
+        refs=_stale_refs(tips, "feat", {"main": _track()}),
+        remotes={},
+        checkouts={},
+        merged=frozenset({"main", "feat"}),
+    )
+
+    assert context.branches["main"].stale is None
+    assert "main" not in context.stale
+
+
+def test_dirty_stale_checkout_keeps_suffix_but_is_not_counted():
+    """Verify gx clean skips dirty worktrees, so the hint excludes them but the badge keeps the suffix."""
+    tips = {"main": "m1", "feat": FEAT_TIP, "old": "m1", "dirty-old": "m1"}
+    tracking = {"old": _track(gone=True), "dirty-old": _track(gone=True)}
+    checkouts = {
+        "dirty-old": Checkout(path=Path("/x/dirty-old"), dirty=(0, 1, 0, 0)),
+        "old": Checkout(path=Path("/x/old"), dirty=None),
+    }
+
+    context = build_log_context(
+        _STALE_PARENTS,
+        default="main",
+        default_tip="m1",
+        refs=_stale_refs(tips, "feat", tracking),
+        remotes={},
+        checkouts=checkouts,
+        merged=frozenset(),
+    )
+
+    assert context.stale == {"old"}
+    assert context.branches["dirty-old"].stale == "gone"
+
+
+def test_stale_branch_in_locked_worktree_is_not_counted():
+    """Verify gx clean leaves locked worktrees alone, so the hint skips their branches."""
+    tips = {"main": "m1", "feat": FEAT_TIP, "old": "m1"}
+    tracking = {"old": _track(gone=True)}
+    checkouts = {"old": Checkout(path=Path("/mnt/usb/old"), dirty=None, is_locked=True)}
+
+    context = build_log_context(
+        _STALE_PARENTS,
+        default="main",
+        default_tip="m1",
+        refs=_stale_refs(tips, "feat", tracking),
+        remotes={},
+        checkouts=checkouts,
+        merged=frozenset(),
+    )
+
+    assert context.stale == frozenset()
+    assert context.branches["old"].stale == "gone"
+
+
+def test_stale_branch_in_main_worktree_is_not_counted():
+    """Verify gx clean never touches the main worktree, so the hint skips its branch."""
+    tips = {"main": "m1", "feat": FEAT_TIP, "old": "m1"}
+    tracking = {"old": _track(gone=True)}
+    checkouts = {"old": Checkout(path=Path("/x/repo"), dirty=None, is_main=True)}
+
+    context = build_log_context(
+        _STALE_PARENTS,
+        default="main",
+        default_tip="m1",
+        refs=_stale_refs(tips, "feat", tracking),
+        remotes={},
+        checkouts=checkouts,
+        merged=frozenset(),
+    )
+
+    assert context.stale == frozenset()
+    assert context.branches["old"].stale == "gone"
+
+
+def test_read_checkouts_marks_the_main_worktree(tmp_git_repo: Path):
+    """Verify only the first worktree entry is flagged as main."""
+    create_tmp_worktree(tmp_git_repo, "fix-log")
+
+    checkouts = read_checkouts(current="main")
+
+    assert checkouts["main"].is_main
+    assert not checkouts["fix-log"].is_main

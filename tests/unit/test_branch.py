@@ -93,3 +93,13 @@ class TestDefaultBranch:
         mocker.patch("gx.lib.branch.current_branch", autospec=True, return_value=None)
         with pytest.raises(typer.Exit):
             default_branch()
+
+
+class TestBranchFileStatuses:
+    """Tests for branch_file_statuses()."""
+
+    def test_zero_counts_for_missing_worktree_folder(self, tmp_path):
+        """Verify a worktree path that no longer exists yields zeros instead of crashing."""
+        from gx.lib.branch import branch_file_statuses
+
+        assert branch_file_statuses(is_current=False, wt_path=tmp_path / "missing") == (0, 0, 0, 0)
