@@ -212,6 +212,7 @@ name = "origin"                            # default remote name
 
 [display]
 nerd_font = true                           # use Nerd Font icons in the log (see Icons below)
+graph_style = "auto"                       # auto, unicode, branch-symbols, or ascii: characters drawn in the log graph
 
 [integrate]
 strategy = "ask"                           # ask, rebase, merge, or ff-only: default strategy for reconciling a diverged branch
@@ -232,6 +233,8 @@ The `gx log` and `gx info` panels badge remote branches with [Nerd Font](https:/
 
 If those badges show empty boxes or garbled characters, your terminal font lacks the icons. Set `nerd_font = false` (or `GX_NERD_FONT=false`) and gx falls back to a plain `@` symbol for every remote.
 
+The `graph_style` setting picks the characters for the `gx log --graph` lines. `auto` uses Unicode when the output encoding is UTF-8 and ASCII otherwise. The `branch-symbols` style needs kitty 0.36 or newer and shows empty boxes in other terminals. `graph_style` is separate from `nerd_font`: the terminal draws the branch symbols itself, and Nerd Fonts do not include them.
+
 ### Environment variables
 
 Override any setting per-invocation with environment variables. These take priority over the config file.
@@ -244,6 +247,7 @@ Override any setting per-invocation with environment variables. These take prior
 | `GX_REMOTE_NAME`        | `GX_REMOTE_NAME=upstream gx push`                |
 | `GX_NERD_FONT`          | `GX_NERD_FONT=false gx log`                      |
 | `GX_INTEGRATE_STRATEGY` | `GX_INTEGRATE_STRATEGY=rebase gx pull`           |
+| `GX_GRAPH_STYLE`        | `GX_GRAPH_STYLE=ascii gx log --graph`            |
 
 ## License
 

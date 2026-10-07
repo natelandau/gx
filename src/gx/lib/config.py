@@ -12,6 +12,7 @@ from nclutils import pp
 from gx.constants import CONFIG_DIR
 
 VALID_STRATEGIES: frozenset[str] = frozenset({"ask", "rebase", "merge", "ff-only"})
+VALID_GRAPH_STYLES: frozenset[str] = frozenset({"auto", "unicode", "branch-symbols", "ascii"})
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class GxConfig:
     remote_name: str = "origin"
     nerd_font: bool = True
     integrate_strategy: str = "ask"
+    graph_style: str = "auto"
 
 
 def _load_toml() -> dict:
@@ -90,24 +92,48 @@ def _extract_bool(table: dict, key: str, config_path: str) -> bool | None:
     return None
 
 
-def _valid_strategy_or_warn(value: str, source: str, action: str) -> str | None:
-    """Return value if it names a valid reconcile strategy, else warn and drop it.
+def _valid_choice_or_warn(
+    value: str, choices: frozenset[str], source: str, action: str
+) -> str | None:
+    """Return value if it is one of the allowed choices, else warn and drop it.
 
     Shared by the TOML and env-var readers so the two paths can never accept or
     reject different values.
 
     Args:
-        value: The raw strategy string.
+        value: The raw string.
+        choices: The allowed values.
         source: Where the value came from, for the warning (e.g. "GX_INTEGRATE_STRATEGY").
         action: The verb describing the fallback (e.g. "Skipping", "Ignoring").
 
     Returns:
         The value if valid, otherwise None.
     """
-    if value in VALID_STRATEGIES:
+    if value in choices:
         return value
-    pp.warning(f"{source} must be one of {sorted(VALID_STRATEGIES)}. {action}.")
+    pp.warning(f"{source} must be one of {sorted(choices)}. {action}.")
     return None
+
+
+def _extract_display_values(display: dict) -> dict:
+    """Extract and validate the [display] table.
+
+    Args:
+        display: The parsed `display` TOML table.
+
+    Returns:
+        A dict of validated config field names to values.
+    """
+    values: dict = {}
+    if (nerd_font := _extract_bool(display, "nerd_font", "display.nerd_font")) is not None:
+        values["nerd_font"] = nerd_font
+    if style := _extract_str(display, "graph_style", "display.graph_style"):
+        valid = _valid_choice_or_warn(
+            style, VALID_GRAPH_STYLES, "Config: display.graph_style", "Skipping"
+        )
+        if valid is not None:
+            values["graph_style"] = valid
+    return values
 
 
 def _extract_toml_values(data: dict) -> dict:
@@ -143,17 +169,16 @@ def _extract_toml_values(data: dict) -> dict:
         values["remote_name"] = name
 
     display = data.get("display", {})
-    if (
-        isinstance(display, dict)
-        and (nerd_font := _extract_bool(display, "nerd_font", "display.nerd_font")) is not None
-    ):
-        values["nerd_font"] = nerd_font
+    if isinstance(display, dict):
+        values.update(_extract_display_values(display))
 
     integrate = data.get("integrate", {})
     if isinstance(integrate, dict) and (
         strategy := _extract_str(integrate, "strategy", "integrate.strategy")
     ):
-        valid = _valid_strategy_or_warn(strategy, "Config: integrate.strategy", "Skipping")
+        valid = _valid_choice_or_warn(
+            strategy, VALID_STRATEGIES, "Config: integrate.strategy", "Skipping"
+        )
         if valid is not None:
             values["integrate_strategy"] = valid
 
@@ -186,9 +211,14 @@ def _load_env_overrides() -> dict:
         overrides["nerd_font"] = val.strip().lower() not in {"0", "false", "no", "off", ""}
 
     if val := os.environ.get("GX_INTEGRATE_STRATEGY"):
-        valid = _valid_strategy_or_warn(val, "GX_INTEGRATE_STRATEGY", "Ignoring")
+        valid = _valid_choice_or_warn(val, VALID_STRATEGIES, "GX_INTEGRATE_STRATEGY", "Ignoring")
         if valid is not None:
             overrides["integrate_strategy"] = val
+
+    if val := os.environ.get("GX_GRAPH_STYLE"):
+        valid = _valid_choice_or_warn(val, VALID_GRAPH_STYLES, "GX_GRAPH_STYLE", "Ignoring")
+        if valid is not None:
+            overrides["graph_style"] = val
 
     return overrides
 

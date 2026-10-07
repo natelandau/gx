@@ -50,10 +50,11 @@ src/gx/
         branch.py            # Branch queries: current, default, merged/gone/empty
         config.py            # User config (GxConfig), TOML loading, env overrides
         display.py           # Shared Rich renderers: branch panel, working tree panel
-        git.py               # Git subprocess wrapper, GitResult, dry-run
+        git.py               # Git subprocess wrapper, raise_on_error, dry-run
         github.py            # GitHub CLI wrapper (gh)
+        graph_layout.py      # Commit-graph lane layout and glyph drawing (charsets, cells)
         info_panels.py       # RepoPanel, GitHubPanel, StashPanel, WorktreePanel classes
-        log_graph.py         # LogGraph class: --graph windowed to branch fork points, folded runs
+        log_graph.py         # LogGraph class: --graph built on graph_layout, fork-point window, folds
         log_panel.py         # LogPanel class: git log rendering with inline ref badges
         options.py           # Shared Typer options (VERBOSE_OPTION, DRY_RUN_OPTION)
         stale_analyzer.py    # StaleAnalyzer class: identifies stale branches/worktrees
@@ -86,12 +87,13 @@ src/gx/
 ### Git Execution
 
 - Git commands run through `src/gx/lib/git.py` — never call `subprocess` directly
-- Import: `from gx.lib.git import git, check_git_installed, check_git_repo, set_dry_run, get_dry_run`
-- `git("push", "origin", "main")` returns a `GitResult` dataclass
-    - `.success` — True if returncode == 0
-    - `.raise_on_error()` — prints stderr via `error()`, raises `typer.Exit(1)` on failure, returns self on success (chainable)
-    - `.stdout` / `.stderr` — stripped strings
-    - `.command` — full command string
+- Import: `from gx.lib.git import git, raise_on_error, check_git_installed, check_git_repo, set_dry_run, get_dry_run`
+- `git("push", "origin", "main")` returns an `nclutils` `CompletedCommand`
+    - `.ok`: True if returncode == 0
+    - `.stdout` / `.stderr`: captured output
+    - `.command_line`: full command string
+- `raise_on_error(result)`: prints stderr via `pp.error()` and raises `typer.Exit(1)` on failure, returns the result on success (chainable)
+- Commands time out after 30 s by default (`timeout=None` disables); a timed-out command returns a failed result
 - Command logging: `debug()` logs the command (visible with `-v`), `trace()` pipes stdout/stderr lines (visible with `-vv`)
 - Dry-run: `--dry-run`/`-n` flag on each subcommand. Mutating commands return synthetic success; read-only commands defined in `READ_ONLY_GIT_COMMANDS` (constants.py) always execute
 - `check_git_installed()` — called once in root CLI callback; verifies git is on PATH

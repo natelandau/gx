@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from gx.lib.config import (
+    VALID_GRAPH_STYLES,
     VALID_STRATEGIES,
     GxConfig,
     _build_config,
@@ -310,3 +311,73 @@ def test_valid_strategies_membership() -> None:
     """Verify the allowed strategy set is exactly the four documented values."""
     # Then
     assert {"ask", "rebase", "merge", "ff-only"} == VALID_STRATEGIES
+
+
+def test_default_graph_style_auto() -> None:
+    """Verify the default graph style is auto."""
+    # Then
+    assert GxConfig().graph_style == "auto"
+
+
+def test_loads_graph_style_from_toml(tmp_path, monkeypatch) -> None:
+    """Verify display.graph_style is read from TOML."""
+    # Given a config file selecting ascii
+    (tmp_path / "config.toml").write_text('[display]\ngraph_style = "ascii"\n')
+    monkeypatch.setattr("gx.lib.config.CONFIG_DIR", tmp_path)
+    monkeypatch.delenv("GX_GRAPH_STYLE", raising=False)
+
+    # When building config
+    cfg = _build_config()
+
+    # Then the style is applied
+    assert cfg.graph_style == "ascii"
+
+
+def test_invalid_graph_style_in_toml_warns_and_skips(tmp_path, monkeypatch, capsys) -> None:
+    """Verify an invalid display.graph_style warns and keeps the default."""
+    # Given a config file with an unknown style
+    (tmp_path / "config.toml").write_text('[display]\ngraph_style = "fancy"\n')
+    monkeypatch.setattr("gx.lib.config.CONFIG_DIR", tmp_path)
+    monkeypatch.delenv("GX_GRAPH_STYLE", raising=False)
+
+    # When building config
+    cfg = _build_config()
+
+    # Then the default is kept and a warning names the key
+    assert cfg.graph_style == "auto"
+    assert "display.graph_style" in capsys.readouterr().err.lower()
+
+
+def test_graph_style_env_override(tmp_path, monkeypatch) -> None:
+    """Verify GX_GRAPH_STYLE overrides the TOML value."""
+    # Given a TOML style and a different env style
+    (tmp_path / "config.toml").write_text('[display]\ngraph_style = "ascii"\n')
+    monkeypatch.setattr("gx.lib.config.CONFIG_DIR", tmp_path)
+    monkeypatch.setenv("GX_GRAPH_STYLE", "branch-symbols")
+
+    # When building config
+    cfg = _build_config()
+
+    # Then the env value wins
+    assert cfg.graph_style == "branch-symbols"
+
+
+def test_invalid_graph_style_env_ignored(tmp_path, monkeypatch, capsys) -> None:
+    """Verify an invalid GX_GRAPH_STYLE is ignored with a warning."""
+    # Given a valid TOML style and an invalid env style
+    (tmp_path / "config.toml").write_text('[display]\ngraph_style = "ascii"\n')
+    monkeypatch.setattr("gx.lib.config.CONFIG_DIR", tmp_path)
+    monkeypatch.setenv("GX_GRAPH_STYLE", "nope")
+
+    # When building config
+    cfg = _build_config()
+
+    # Then the TOML value is kept and a warning is emitted
+    assert cfg.graph_style == "ascii"
+    assert "gx_graph_style" in capsys.readouterr().err.lower()
+
+
+def test_valid_graph_styles_membership() -> None:
+    """Verify the allowed graph styles are exactly the four documented values."""
+    # Then
+    assert {"auto", "unicode", "branch-symbols", "ascii"} == VALID_GRAPH_STYLES
