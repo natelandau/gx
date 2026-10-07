@@ -49,13 +49,15 @@ def _resolve_push_target(branch: str) -> tuple[str, str]:
 
     Use the configured tracking branch if available, otherwise fall back to
     origin and the given branch name. The --set-upstream flag on the push
-    command will establish tracking on first push.
+    command will establish tracking on first push. A branch that tracks a
+    local branch (remote `.`) has nowhere to publish, so it is treated as
+    having no upstream.
 
     Args:
         branch: The current local branch name (already validated as non-None).
     """
     tracking = tracking_branch()
-    if tracking is not None:
+    if tracking is not None and tracking[0] != ".":
         return tracking
 
     return (config.remote_name, branch)

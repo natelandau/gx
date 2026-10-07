@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import re
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from nclutils import pp
 
+from gx.lib.config import config
 from gx.lib.git import git
+from gx.lib.refs import read_remotes, remote_glyph
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -24,6 +27,7 @@ PALETTE: tuple[str, ...] = (
     "bright_yellow",
 )
 DIM = "dim"
+REMOTE_REF_PREFIX = "refs/remotes/"
 
 type Parents = Mapping[str, tuple[str, ...]]
 
@@ -143,6 +147,11 @@ class BranchState:
     color: str
     is_current: bool
     is_default: bool
+    upstream: str | None = None
+    ahead: int = 0
+    behind: int = 0
+    upstream_gone: bool = False
+    has_remote_upstream: bool = False
 
 
 @dataclass(frozen=True)
@@ -155,6 +164,9 @@ class LogContext:
     owners: Mapping[str, str]
     head_reachable: frozenset[str]
     parents: Parents
+    unpushed: frozenset[str] = frozenset()
+    remotes: frozenset[str] = frozenset()
+    remote_glyphs: Mapping[str, str] = field(default_factory=dict)
 
     def owner(self, sha: str) -> BranchState | None:
         """Return the branch that owns a commit, if it is visible.
@@ -215,39 +227,117 @@ class LogContext:
 
 
 @dataclass(frozen=True)
+class Tracking:
+    """A local branch's upstream and how far the two have drifted."""
+
+    upstream: str
+    upstream_ref: str
+    ahead: int
+    behind: int
+    gone: bool
+
+
+@dataclass(frozen=True)
 class BranchRefs:
-    """Local branch tips and where HEAD points."""
+    """Local branch tips, their upstreams, and where HEAD points."""
 
     tips: Mapping[str, str]
     current: str | None
     head_sha: str | None
+    tracking: Mapping[str, Tracking] = field(default_factory=dict)
+
+
+def parse_track(track: str) -> tuple[int, int, bool]:
+    """Read git's `upstream:track` text into counts.
+
+    Args:
+        track: The field value, such as `[ahead 2, behind 1]`, `[gone]`, or empty.
+
+    Returns:
+        The ahead count, the behind count, and whether the upstream is gone.
+    """
+    ahead = re.search(r"ahead (\d+)", track)
+    behind = re.search(r"behind (\d+)", track)
+    return (
+        int(ahead.group(1)) if ahead else 0,
+        int(behind.group(1)) if behind else 0,
+        track == "[gone]",
+    )
 
 
 def read_branch_refs() -> BranchRefs:
-    """Read local branch tips, the checked-out branch, and the HEAD commit.
+    """Read local branch tips, upstreams, the checked-out branch, and the HEAD commit.
 
     Returns:
         The branch tips by name, the current branch name (None when detached),
-        and the HEAD sha (None when HEAD is unborn).
+        the HEAD sha (None when HEAD is unborn), and tracking for branches with an upstream.
     """
     # lstrip=2 drops `refs/heads/`; `:short` would yield `heads/x` when a tag shares the name.
     result = git(
-        "for-each-ref", "--format=%(HEAD)%1f%(refname:lstrip=2)%1f%(objectname)", "refs/heads"
+        "for-each-ref",
+        "--format=%(HEAD)%1f%(refname:lstrip=2)%1f%(objectname)"
+        "%1f%(upstream)%1f%(upstream:lstrip=2)%1f%(upstream:track)",
+        "refs/heads",
     )
     if not result.ok:
         pp.debug(f"git for-each-ref failed, branch colors unavailable: {result.stderr}")
     tips: dict[str, str] = {}
+    tracking: dict[str, Tracking] = {}
     current: str | None = None
     head_sha: str | None = None
     for line in result.stdout.splitlines() if result.ok else []:
-        marker, name, sha = line.split("\x1f")
+        marker, name, sha, upstream_ref, upstream, track = line.split("\x1f")
         tips[name] = sha
         if marker == "*":
             current, head_sha = name, sha
+        if upstream_ref:
+            ahead, behind, gone = parse_track(track)
+            tracking[name] = Tracking(
+                upstream=upstream,
+                upstream_ref=upstream_ref,
+                ahead=ahead,
+                behind=behind,
+                gone=gone,
+            )
     if current is None:
         head = git("rev-parse", "--verify", "--quiet", "HEAD")
         head_sha = head.stdout if head.ok and head.stdout else None
-    return BranchRefs(tips=tips, current=current, head_sha=head_sha)
+    return BranchRefs(tips=tips, current=current, head_sha=head_sha, tracking=tracking)
+
+
+def read_unpushed(
+    tracking: Mapping[str, Tracking], tips: Mapping[str, str], window: Iterable[str]
+) -> frozenset[str]:
+    """Find window commits that exist on a branch but not on its remote upstream.
+
+    Ask git rather than infer from the window, because an upstream tip can lie
+    outside a limited window. Branches tracking another local branch are skipped,
+    since their commits are not unpushed to any remote.
+
+    Args:
+        tracking: Upstream state by branch name.
+        tips: Tip sha by branch name.
+        window: Commits shown in the graph.
+
+    Returns:
+        The unpushed commits that are in the window.
+    """
+    shown = set(window)
+    unpushed: set[str] = set()
+    for name, track in tracking.items():
+        if track.ahead <= 0 or not track.upstream_ref.startswith(REMOTE_REF_PREFIX):
+            continue
+        # The window is topo-ordered, so a tip outside it cuts off all its ancestors too.
+        if tips.get(name) not in shown:
+            continue
+        result = git("rev-list", f"{track.upstream_ref}..refs/heads/{name}")
+        if not result.ok:
+            pp.debug(
+                f"git rev-list failed for {name}, unpushed commits unavailable: {result.stderr}"
+            )
+            continue
+        unpushed.update(sha for sha in result.stdout.split() if sha in shown)
+    return frozenset(unpushed)
 
 
 def build_log_context(
@@ -256,6 +346,7 @@ def build_log_context(
     default: str | None,
     default_tip: str | None,
     refs: BranchRefs | None = None,
+    remotes: Mapping[str, str] | None = None,
 ) -> LogContext:
     """Assemble the branch context that colors the log graph.
 
@@ -267,11 +358,13 @@ def build_log_context(
         default: Name of the default branch, which may be a remote-tracking ref.
         default_tip: Tip sha of the default branch.
         refs: Branch tips and HEAD already read from git, or None to read them.
+        remotes: Map of remote name to fetch URL, or None to read them.
 
     Returns:
         The context for styling commits and pipes.
     """
     refs = refs if refs is not None else read_branch_refs()
+    remotes = remotes if remotes is not None else read_remotes()
     tips, current, head_sha = refs.tips, refs.current, refs.head_sha
     head_reachable = reachable([head_sha] if head_sha else [], parents)
     owners = assign_owners(
@@ -284,19 +377,24 @@ def build_log_context(
     )
     colors = assign_colors(visible)
 
+    def state(name: str, color: str, *, is_default: bool) -> BranchState:
+        track = refs.tracking.get(name)
+        return BranchState(
+            name=name,
+            color=color,
+            is_current=name == current,
+            is_default=is_default,
+            upstream=track.upstream if track else None,
+            ahead=track.ahead if track else 0,
+            behind=track.behind if track else 0,
+            upstream_gone=track.gone if track else False,
+            has_remote_upstream=bool(track and track.upstream_ref.startswith(REMOTE_REF_PREFIX)),
+        )
+
     branches: dict[str, BranchState] = {}
     if default is not None and default_tip in parents:
-        branches[default] = BranchState(
-            name=default, color="", is_current=default == current, is_default=True
-        )
-    branches.update(
-        {
-            name: BranchState(
-                name=name, color=colors[name], is_current=name == current, is_default=False
-            )
-            for name in visible
-        }
-    )
+        branches[default] = state(default, "", is_default=True)
+    branches.update({name: state(name, colors[name], is_default=False) for name in visible})
     return LogContext(
         default=default,
         current=current,
@@ -304,4 +402,9 @@ def build_log_context(
         owners=owners,
         head_reachable=head_reachable,
         parents=parents,
+        unpushed=read_unpushed(refs.tracking, tips, parents),
+        remotes=frozenset(remotes),
+        remote_glyphs=(
+            {name: remote_glyph(url) for name, url in remotes.items()} if config.nerd_font else {}
+        ),
     )

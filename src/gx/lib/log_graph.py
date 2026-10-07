@@ -42,10 +42,14 @@ from gx.lib.graph_layout import (
     layout,
     row_cells,
 )
+from gx.lib.log_badges import badge_symbols, render_badges
 from gx.lib.log_context import DIM, LogContext, build_log_context, dimmed, read_branch_refs
+from gx.lib.refs import parse_refs
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from gx.lib.refs import RefDecoration
 
 _FIELD_SEP = "\x1f"
 _GRAPH_FORMAT = "%H%x1f%P%x1f%h%x1f%at%x1f%an%x1f%D%x1f%s"
@@ -225,9 +229,8 @@ def short_age(timestamp: int, now: int) -> str:
     return "0s"
 
 
-def _node_kind(entry: GraphEntry) -> NodeKind:
-    refs = [r.strip() for r in entry.commit.refs.split(",")]
-    if any(r == "HEAD" or r.startswith("HEAD -> ") for r in refs):
+def _node_kind(entry: GraphEntry, refs: RefDecoration) -> NodeKind:
+    if refs.head is not None or refs.detached:
         return NodeKind.HEAD
     return NodeKind.MERGE if entry.row.is_merge else NodeKind.COMMIT
 
@@ -301,8 +304,10 @@ def render_line(
 
     commit = line.commit
     owner = context.owner(commit.sha)
+    refs = parse_refs(commit.refs, context.remotes)
+    symbols = badge_symbols(charset)
     text = _graph_text(
-        row_cells(line.row, _node_kind(line)),
+        row_cells(line.row, _node_kind(line, refs)),
         charset,
         context,
         node_style=context.commit_style(commit.sha),
@@ -311,11 +316,13 @@ def render_line(
     graph_end = len(text.plain)
     text.append(" ")
     text.append(commit.short_sha, style=context.sha_style(commit.sha))
+    if commit.sha in context.unpushed:
+        text.append(symbols.unpushed, style="dim")
     text.append(" ")
-    if commit.refs:
-        text.append("(", style="dim")
-        text.append(commit.refs, style="bold magenta")
-        text.append(") ", style="dim")
+    badges = render_badges(refs, context, symbols)
+    if badges:
+        text.append_text(badges)
+        text.append(" ")
     text.append(commit.subject, style="bold" if owner and owner.is_current else "")
 
     meta = Text("  ")
@@ -352,6 +359,8 @@ def render_legend(context: LogContext, charset: Charset, width: int | None) -> T
         return None
 
     bullet = "*" if charset is ASCII else "●"
+    # With no tracked branch every branch is local, so the mark would say nothing.
+    mark_local = any(b.has_remote_upstream for b in branches)
     entries: list[Text] = []
     for branch in branches:
         entry = Text()
@@ -360,6 +369,9 @@ def render_legend(context: LogContext, charset: Charset, width: int | None) -> T
         if branch.is_current:
             entry.append(" ")
             entry.append("(current)", style="dim")
+        if mark_local and not branch.is_default and not branch.has_remote_upstream:
+            entry.append(" ")
+            entry.append("local", style="dim")
         entries.append(entry)
 
     sep = "  "

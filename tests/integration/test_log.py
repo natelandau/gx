@@ -1,5 +1,7 @@
 """Integration tests for gx log command."""
 
+from pathlib import Path
+
 import pytest
 from typer.testing import CliRunner
 
@@ -13,7 +15,9 @@ from tests.conftest import (
     create_tmp_commit,
     create_tmp_stash,
     create_tmp_worktree,
+    delete_tmp_remote_branch,
     merge_tmp_branch,
+    push_tmp_branch,
 )
 
 runner = CliRunner()
@@ -314,6 +318,7 @@ class TestLogIntegration:
         assert result.exit_code == 0
         assert "feature" in result.output.rstrip("\n").splitlines()[-1]
         assert "(current)" not in result.output
+        assert "[HEAD]" in result.output
 
     def test_log_graph_unborn_orphan_checkout_keeps_default(self, tmp_git_repo, mocker):
         """Verify an unborn orphan checkout still resolves main as the default branch."""
@@ -362,3 +367,119 @@ class TestLogIntegration:
         # Then
         assert result.exit_code == 0
         assert "No commits found" in result.output
+
+    @staticmethod
+    def _badges_repo(repo: Path) -> None:
+        """Build main (tagged, in sync), feat (pushed then one local commit), and solo."""
+        _run_git("tag", "v1", cwd=repo)
+        create_tmp_branch(repo, "solo")
+        create_tmp_commit(repo, "solo work")
+        checkout_tmp_branch(repo, "main")
+        create_tmp_branch(repo, "feat")
+        create_tmp_commit(repo, "one")
+        push_tmp_branch(repo, "feat")
+        create_tmp_commit(repo, "two")
+
+    @pytest.mark.parametrize(
+        ("style", "ahead", "sync", "tag"),
+        [("unicode", "↑1", "⇅", "◆ v1"), ("ascii", "^1", "=", "# v1")],
+    )
+    def test_log_graph_badges_and_sync(self, tmp_git_repo, mocker, style, ahead, sync, tag):
+        """Verify badges, sync suffixes, tags, and the local legend mark render end to end."""
+        # Given main in sync with origin/main and tagged, feat ahead of its upstream, solo unpushed
+        mocker.patch.object(log_graph, "config", GxConfig(graph_style=style))
+        self._badges_repo(tmp_git_repo)
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        assert f"[feat {ahead}]" in result.output
+        assert f"(main {sync})" in result.output
+        assert tag in result.output
+        assert "(solo)" in result.output
+        assert "origin/main" not in result.output
+        assert "solo local" in result.output.splitlines()[-1]
+
+    @pytest.mark.parametrize(("style", "marker"), [("unicode", "↑"), ("ascii", "+")])
+    def test_log_graph_marks_only_unpushed_commits(self, tmp_git_repo, mocker, style, marker):
+        """Verify only commits missing from the upstream carry the unpushed marker."""
+        # Given feat pushed at "one" with "two" committed locally
+        mocker.patch.object(log_graph, "config", GxConfig(graph_style=style))
+        self._badges_repo(tmp_git_repo)
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        lines = result.output.splitlines()
+        assert len([line for line in lines if f"{marker} " in line and "two" in line]) == 1
+        assert not any(f"{marker} " in line and "one" in line for line in lines)
+
+    def test_log_graph_branch_tracking_local_branch_is_not_unpushed(self, tmp_git_repo, mocker):
+        """Verify a branch tracking a local branch marks no pushed commit and is legend-local."""
+        # Given stacked on a pushed feat, tracking local main
+        mocker.patch.object(log_graph, "config", GxConfig(graph_style="unicode"))
+        create_tmp_branch(tmp_git_repo, "feat")
+        create_tmp_commit(tmp_git_repo, "one")
+        push_tmp_branch(tmp_git_repo, "feat")
+        create_tmp_branch(tmp_git_repo, "stacked")
+        create_tmp_commit(tmp_git_repo, "two")
+        _run_git("branch", "-u", "main", "stacked", cwd=tmp_git_repo)
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        assert not any("↑ " in line for line in result.output.splitlines())
+        assert "stacked (current) local" in result.output.splitlines()[-1]
+
+    def test_log_graph_remote_name_with_slash(self, tmp_git_repo):
+        """Verify refs of a remote named with a slash render as remote badges."""
+        # Given a remote named team/fork with a fetched branch
+        remote = tmp_git_repo.parent / "fork.git"
+        _run_git("init", "--bare", str(remote), cwd=tmp_git_repo)
+        _run_git("remote", "add", "team/fork", str(remote), cwd=tmp_git_repo)
+        _run_git("push", "team/fork", "main:dev", cwd=tmp_git_repo)
+        _run_git("fetch", "team/fork", cwd=tmp_git_repo)
+        create_tmp_branch(tmp_git_repo, "feat")
+        create_tmp_commit(tmp_git_repo, "one")
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then the ref is a remote badge, not a local `(team/fork/dev)` branch
+        assert result.exit_code == 0
+        assert "team/fork/dev" in result.output
+        assert "(team/fork/dev" not in result.output
+
+    def test_log_graph_gone_upstream_renders(self, tmp_git_repo):
+        """Verify a branch whose upstream was deleted on the remote still renders."""
+        # Given feat pushed, then deleted on the remote
+        create_tmp_branch(tmp_git_repo, "feat")
+        create_tmp_commit(tmp_git_repo, "one")
+        push_tmp_branch(tmp_git_repo, "feat")
+        delete_tmp_remote_branch(tmp_git_repo, "feat")
+        # When
+        result = runner.invoke(app, ["log", "--graph"])
+        # Then
+        assert result.exit_code == 0
+        feat_line = next(line for line in result.output.splitlines() if "[feat" in line)
+        assert "[feat]" in feat_line
+        assert "↑" not in feat_line
+        assert "↓" not in feat_line
+
+    @pytest.mark.parametrize(
+        ("style", "ahead", "sync", "tag"),
+        [("unicode", "↑1", "⇅", "◆ v1"), ("ascii", "^1", "=", "# v1")],
+    )
+    def test_log_graph_full_keeps_badges_and_legend(
+        self, tmp_git_repo, mocker, style, ahead, sync, tag
+    ):
+        """Verify --full keeps the badges, the tag, and the legend."""
+        # Given the badges repo
+        mocker.patch.object(log_graph, "config", GxConfig(graph_style=style))
+        self._badges_repo(tmp_git_repo)
+        # When
+        result = runner.invoke(app, ["log", "--graph", "--full"])
+        # Then
+        assert result.exit_code == 0
+        assert f"[feat {ahead}]" in result.output
+        assert f"(main {sync})" in result.output
+        assert tag in result.output
+        assert "solo local" in result.output.splitlines()[-1]

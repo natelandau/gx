@@ -45,8 +45,6 @@ READ_ONLY_GIT_COMPOUND_COMMANDS: dict[str, frozenset[str]] = {
     "worktree": frozenset({"list"}),
 }
 
-KNOWN_REMOTE_NAMES: frozenset[str] = frozenset({"origin", "upstream", "fork"})
-
 # `--all` alone also walks stash WIP/index commits and git-notes commits, which are not history
 LOG_ALL_REFS_ARGS: tuple[str, ...] = ("--exclude=refs/stash", "--exclude=refs/notes/*", "--all")
 

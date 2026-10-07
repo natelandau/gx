@@ -4,7 +4,7 @@ import pytest
 import typer
 
 from gx.lib.branch import default_branch, has_commits, is_remote_ref
-from tests.conftest import create_tmp_branch
+from tests.conftest import _run_git, create_tmp_branch
 
 
 class TestIsRemoteRef:
@@ -27,6 +27,14 @@ class TestIsRemoteRef:
         create_tmp_branch(tmp_git_repo, "feat/x")
         # When/Then the slash does not make it a remote ref
         assert is_remote_ref("feat/x") is False
+
+    def test_true_for_remote_name_containing_slash(self, tmp_git_repo):
+        """Verify a remote named with a slash qualifies its refs."""
+        # Given a remote named team/fork
+        _run_git("remote", "add", "team/fork", "https://example.com/x.git", cwd=tmp_git_repo)
+        # When/Then refs under it are remote refs, while an unrelated slash ref is not
+        assert is_remote_ref("team/fork/main") is True
+        assert is_remote_ref("team/other") is False
 
 
 class TestHasCommits:

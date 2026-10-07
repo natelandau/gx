@@ -63,7 +63,7 @@ def log(
 
     - Default: clean grid with aligned columns inside a panel
     - --full: includes commit bodies below each entry
-    - --graph: branch graph reaching back to where each local branch forks, with long runs of commits folded, each branch colored, and a color legend below
+    - --graph: branch graph reaching back to where each local branch forks, with long runs of commits folded, each branch colored, ref badges by type with sync state (`↑n↓m`, `⇅`), a `↑` after the SHA of unpushed commits, and a color legend below
     - --graph --full: branch graph with every commit shown
 
     [bold]Examples:[/bold]

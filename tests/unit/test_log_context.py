@@ -6,25 +6,34 @@ import itertools
 import zlib
 from typing import TYPE_CHECKING
 
+import pytest
 from nclutils.sh import CompletedCommand
 
+from gx.lib.config import GxConfig
 from gx.lib.git import git
 from gx.lib.graph_layout import Pipe, PipeKind
 from gx.lib.log_context import (
     PALETTE,
     BranchState,
     LogContext,
+    Tracking,
     assign_colors,
     assign_owners,
     build_log_context,
+    parse_track,
     reachable,
+    read_branch_refs,
+    read_unpushed,
 )
+from gx.lib.refs import GIT_GLYPH
 from tests.conftest import (
     _run_git,
     checkout_tmp_branch,
     create_tmp_branch,
     create_tmp_commit,
+    delete_tmp_remote_branch,
     detach_tmp_head,
+    push_tmp_branch,
 )
 
 if TYPE_CHECKING:
@@ -522,3 +531,226 @@ def test_failed_ref_listing_is_logged(tmp_git_repo: Path, mocker):
     # Then
     debug.assert_called_once()
     assert "for-each-ref" in debug.call_args.args[0]
+
+
+def _git_result(stdout: str) -> CompletedCommand:
+    return CompletedCommand(
+        argv=("git",), returncode=0, stdout=stdout, stderr="", duration=0.0, cwd=None
+    )
+
+
+def _sha(repo: Path, rev: str = "HEAD") -> str:
+    return _run_git("rev-parse", rev, cwd=repo).stdout.strip()
+
+
+@pytest.mark.parametrize(
+    ("track", "expected"),
+    [
+        ("", (0, 0, False)),
+        ("[ahead 2]", (2, 0, False)),
+        ("[behind 3]", (0, 3, False)),
+        ("[ahead 2, behind 1]", (2, 1, False)),
+        ("[gone]", (0, 0, True)),
+        ("[ahead 1, gone]", (1, 0, False)),
+    ],
+)
+def test_parse_track(track: str, expected: tuple[int, int, bool]):
+    """Verify the ahead, behind, and gone parts are read from upstream:track."""
+    assert parse_track(track) == expected
+
+
+def test_tracking_read_with_branch_refs(tmp_git_repo: Path):
+    """Verify tracking carries the upstream names and the ahead count."""
+    # Given feat pushed with an upstream, then one more local commit
+    create_tmp_branch(tmp_git_repo, "feat")
+    create_tmp_commit(tmp_git_repo, "one")
+    push_tmp_branch(tmp_git_repo)
+    create_tmp_commit(tmp_git_repo, "two")
+
+    # When
+    refs = read_branch_refs()
+
+    # Then
+    assert refs.tracking["feat"] == Tracking(
+        upstream="origin/feat",
+        upstream_ref="refs/remotes/origin/feat",
+        ahead=1,
+        behind=0,
+        gone=False,
+    )
+    assert refs.tracking["main"].upstream == "origin/main"
+
+
+def test_branch_without_upstream_has_no_tracking(tmp_git_repo: Path):
+    """Verify a branch with no upstream is absent from tracking."""
+    create_tmp_branch(tmp_git_repo, "feat")
+    assert "feat" not in read_branch_refs().tracking
+
+
+def test_gone_upstream(tmp_git_repo: Path):
+    """Verify a deleted upstream is flagged gone and yields no unpushed commits."""
+    # Given feat whose remote branch was deleted
+    create_tmp_branch(tmp_git_repo, "feat")
+    create_tmp_commit(tmp_git_repo, "one")
+    push_tmp_branch(tmp_git_repo)
+    delete_tmp_remote_branch(tmp_git_repo, "feat")
+
+    # When
+    tracking = read_branch_refs().tracking["feat"]
+    parents, main_tip = _window(tmp_git_repo)
+    context = build_log_context(parents, default="main", default_tip=main_tip)
+
+    # Then
+    assert (tracking.ahead, tracking.behind, tracking.gone) == (0, 0, True)
+    assert context.branches["feat"].upstream_gone is True
+    assert context.unpushed == frozenset()
+
+
+def test_unpushed_are_exactly_the_ahead_commits(tmp_git_repo: Path):
+    """Verify only commits missing from the upstream are unpushed."""
+    # Given feat pushed at "one", then "two" and "three" local only
+    create_tmp_branch(tmp_git_repo, "feat")
+    create_tmp_commit(tmp_git_repo, "one")
+    push_tmp_branch(tmp_git_repo)
+    create_tmp_commit(tmp_git_repo, "two")
+    sha_two = _sha(tmp_git_repo)
+    create_tmp_commit(tmp_git_repo, "three")
+    sha_three = _sha(tmp_git_repo)
+    # And solo with a commit but no upstream
+    checkout_tmp_branch(tmp_git_repo, "main")
+    create_tmp_branch(tmp_git_repo, "solo")
+    create_tmp_commit(tmp_git_repo, "solo-one")
+    sha_solo = _sha(tmp_git_repo)
+    parents, main_tip = _window(tmp_git_repo)
+
+    # When
+    context = build_log_context(parents, default="main", default_tip=main_tip)
+
+    # Then
+    assert context.unpushed == {sha_two, sha_three}
+    assert sha_solo not in context.unpushed
+    assert context.branches["feat"].ahead == 2
+    assert context.branches["feat"].upstream == "origin/feat"
+
+
+def test_unpushed_limited_to_window(mocker):
+    """Verify unpushed commits outside the window are dropped."""
+    mocker.patch("gx.lib.log_context.git", return_value=_git_result("a\nb"))
+    tracking = {"feat": Tracking("origin/feat", "refs/remotes/origin/feat", 2, 0, gone=False)}
+    assert read_unpushed(tracking, {"feat": "a"}, ["a"]) == {"a"}
+
+
+def test_unpushed_skips_branch_tracking_a_local_branch(mocker):
+    """Verify a local upstream never produces unpushed commits."""
+    git_mock = mocker.patch("gx.lib.log_context.git")
+    tracking = {"stacked": Tracking("main", "refs/heads/main", 2, 0, gone=False)}
+    assert read_unpushed(tracking, {"stacked": "a"}, ["a"]) == frozenset()
+    git_mock.assert_not_called()
+
+
+def test_unpushed_skips_branch_whose_tip_is_outside_window(mocker):
+    """Verify no rev-list runs for a branch whose tip the window does not reach."""
+    git_mock = mocker.patch("gx.lib.log_context.git")
+    tracking = {"feat": Tracking("origin/feat", "refs/remotes/origin/feat", 2, 0, gone=False)}
+    assert read_unpushed(tracking, {"feat": "zzz"}, ["a"]) == frozenset()
+    git_mock.assert_not_called()
+
+
+def test_branch_tracking_a_local_branch_is_not_remote_tracked(tmp_git_repo: Path):
+    """Verify a local upstream keeps its sync counts but marks no pushed commit unpushed."""
+    # Given feat pushed with one commit, and stacked on top tracking local main
+    create_tmp_branch(tmp_git_repo, "feat")
+    create_tmp_commit(tmp_git_repo, "one")
+    push_tmp_branch(tmp_git_repo)
+    create_tmp_branch(tmp_git_repo, "stacked")
+    create_tmp_commit(tmp_git_repo, "two")
+    _run_git("branch", "-u", "main", "stacked", cwd=tmp_git_repo)
+    parents, main_tip = _window(tmp_git_repo)
+
+    # When
+    context = build_log_context(parents, default="main", default_tip=main_tip)
+
+    # Then the suffix data matches git status, but nothing is unpushed or remote-tracked
+    stacked = context.branches["stacked"]
+    assert (stacked.upstream, stacked.ahead) == ("main", 2)
+    assert stacked.has_remote_upstream is False
+    assert context.branches["feat"].has_remote_upstream is True
+    assert context.unpushed == frozenset()
+
+
+def test_behind_is_read_from_git(tmp_git_repo: Path):
+    """Verify the behind count reaches the context."""
+    # Given feat pushed with two commits, then reset one commit behind its upstream
+    create_tmp_branch(tmp_git_repo, "feat")
+    create_tmp_commit(tmp_git_repo, "one")
+    create_tmp_commit(tmp_git_repo, "two")
+    push_tmp_branch(tmp_git_repo)
+    _run_git("reset", "--hard", "HEAD~1", cwd=tmp_git_repo)
+    parents, main_tip = _window(tmp_git_repo)
+
+    # When
+    refs = read_branch_refs()
+    context = build_log_context(parents, default="main", default_tip=main_tip, refs=refs)
+
+    # Then
+    assert (refs.tracking["feat"].ahead, refs.tracking["feat"].behind) == (0, 1)
+    assert context.branches["feat"].behind == 1
+
+
+def test_tracking_read_for_branch_sharing_a_tag_name(tmp_git_repo: Path):
+    """Verify a tag named like a pushed branch does not hide the branch's upstream."""
+    # Given a pushed branch v1 and a tag v1
+    create_tmp_branch(tmp_git_repo, "v1")
+    create_tmp_commit(tmp_git_repo, "one")
+    push_tmp_branch(tmp_git_repo)
+    _run_git("tag", "v1", cwd=tmp_git_repo)
+
+    # When
+    tracking = read_branch_refs().tracking
+
+    # Then
+    assert tracking["v1"].upstream == "origin/v1"
+    assert tracking["v1"].upstream_ref == "refs/remotes/origin/v1"
+
+
+def test_unpushed_skips_branches_not_ahead(mocker):
+    """Verify git is not consulted for a branch with nothing to push."""
+    git_mock = mocker.patch("gx.lib.log_context.git")
+    tracking = {"feat": Tracking("origin/feat", "refs/remotes/origin/feat", 0, 3, gone=False)}
+    read_unpushed(tracking, {"feat": "a"}, ["a"])
+    git_mock.assert_not_called()
+
+
+def test_unpushed_failure_is_logged_and_skipped(mocker):
+    """Verify a failing rev-list is reported at debug level and skipped."""
+    failed = CompletedCommand(
+        argv=("git",), returncode=1, stdout="", stderr="boom", duration=0.0, cwd=None
+    )
+    mocker.patch("gx.lib.log_context.git", return_value=failed)
+    debug = mocker.patch("gx.lib.log_context.pp.debug")
+    tracking = {"feat": Tracking("origin/feat", "refs/remotes/origin/feat", 2, 0, gone=False)}
+    assert read_unpushed(tracking, {"feat": "a"}, ["a"]) == frozenset()
+    debug.assert_called_once()
+
+
+def test_no_remotes_reads_no_tracking(tmp_git_repo: Path):
+    """Verify a repo without remotes has no upstream, remotes, or unpushed commits."""
+    _run_git("remote", "remove", "origin", cwd=tmp_git_repo)
+    parents, main_tip = _window(tmp_git_repo)
+    context = build_log_context(parents, default="main", default_tip=main_tip)
+    assert context.remotes == frozenset()
+    assert context.branches["main"].upstream is None
+    assert context.unpushed == frozenset()
+
+
+def test_remote_glyphs_follow_nerd_font(tmp_git_repo: Path, mocker):
+    """Verify remote glyphs are only produced when nerd fonts are on."""
+    parents, main_tip = _window(tmp_git_repo)
+    for target in ("gx.lib.log_context.config", "gx.lib.refs.config"):
+        mocker.patch(target, GxConfig(nerd_font=False))
+    assert build_log_context(parents, default="main", default_tip=main_tip).remote_glyphs == {}
+    for target in ("gx.lib.log_context.config", "gx.lib.refs.config"):
+        mocker.patch(target, GxConfig(nerd_font=True))
+    context = build_log_context(parents, default="main", default_tip=main_tip)
+    assert context.remotes == {"origin"}
+    assert context.remote_glyphs == {"origin": GIT_GLYPH}

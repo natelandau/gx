@@ -175,6 +175,18 @@ class TestResolvePushTarget:
         assert remote == "origin"
         assert branch == "new-feature"
 
+    def test_local_upstream_pushes_to_default_remote(self, mock_push_tracking_branch):
+        """Verify a branch tracking a local branch pushes to the default remote."""
+        # Given
+        mock_push_tracking_branch.return_value = (".", "main")
+
+        # When
+        remote, branch = _resolve_push_target("feature")
+
+        # Then
+        assert remote == "origin"
+        assert branch == "feature"
+
 
 class TestWarnDirtyTree:
     """Tests for dirty tree warning message formatting."""

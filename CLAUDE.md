@@ -54,10 +54,12 @@ src/gx/
         github.py            # GitHub CLI wrapper (gh)
         graph_layout.py      # Commit-graph lane layout and glyph drawing (charsets, cells)
         info_panels.py       # RepoPanel, GitHubPanel, StashPanel, WorktreePanel classes
+        log_badges.py        # Typed ref badges and sync suffixes for the log graph
         log_context.py       # Branch ownership, reachability, and colors for the log graph
         log_graph.py         # LogGraph class: --graph built on graph_layout, fork-point window, folds
         log_panel.py         # LogPanel class: git log rendering with inline ref badges
         options.py           # Shared Typer options (VERBOSE_OPTION, DRY_RUN_OPTION)
+        refs.py              # Ref decoration parser (%D) and remote helpers (names, host glyphs)
         stale_analyzer.py    # StaleAnalyzer class: identifies stale branches/worktrees
         status_panel.py      # StatusPanel class: porcelain parsing + file tree rendering
         worktree.py          # Worktree management: list (enriched), create, remove

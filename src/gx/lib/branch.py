@@ -31,6 +31,7 @@ from nclutils.git import default_branch as nc_default_branch
 from nclutils.sh import ShellCommandError
 
 from gx.lib.git import git
+from gx.lib.refs import remote_of
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -72,21 +73,50 @@ def default_branch() -> str:
     raise typer.Exit(1)
 
 
+def remote_for_ref(ref: str) -> str | None:
+    """Find the configured remote that qualifies a ref (e.g. origin for origin/main).
+
+    Distinguishes a remote-tracking ref from a local branch that merely contains
+    a slash, like ``feat/123``, and returns the whole remote name even when it
+    contains slashes. Runs one ``git remote`` call.
+
+    Args:
+        ref: The ref name to test.
+
+    Returns:
+        The remote name, or None when the ref is not remote-qualified.
+    """
+    if "/" not in ref:
+        return None
+    result = git("remote")
+    return remote_of(ref, result.stdout.splitlines()) if result.ok else None
+
+
+def upstream_ref_name(remote: str, remote_branch: str) -> str:
+    """Name the ref an upstream resolves to, given its remote and branch.
+
+    A branch that tracks another local branch has the remote `.`, and its
+    upstream is the local branch itself rather than `./<branch>`.
+
+    Args:
+        remote: The upstream remote, or `.` for a local upstream.
+        remote_branch: The upstream branch name on that remote.
+
+    Returns:
+        A ref such as `origin/main`, or `main` for a local upstream.
+    """
+    return remote_branch if remote == "." else f"{remote}/{remote_branch}"
+
+
 def is_remote_ref(ref: str) -> bool:
     """Report whether a ref is qualified by a configured remote (e.g. origin/main).
 
-    Distinguishes a remote-tracking ref from a local branch that merely contains
-    a slash, like ``feat/123``. Callers use it to decide whether a ref needs a
-    fetch and whether a staleness check applies.
+    Callers use it to decide whether a ref needs a staleness check.
 
     Args:
         ref: The ref name to test.
     """
-    if "/" not in ref:
-        return False
-    prefix = ref.split("/", 1)[0]
-    result = git("remote")
-    return result.ok and prefix in result.stdout.splitlines()
+    return remote_for_ref(ref) is not None
 
 
 def has_commits() -> bool:
@@ -188,7 +218,7 @@ def branch_remote_counts(
     ar_ahead: int | None = None
     ar_behind: int | None = None
     tracking = tracking_branch(branch)
-    remote_ref = f"{tracking[0]}/{tracking[1]}" if tracking else None
+    remote_ref = upstream_ref_name(*tracking) if tracking else None
     if remote_ref:
         with suppress(ShellCommandError):
             ar_ahead, ar_behind = ahead_behind(branch, remote_ref)

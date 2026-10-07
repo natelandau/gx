@@ -14,34 +14,25 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from nclutils.git import default_branch as remote_default_branch
-from nclutils.git import primary_remote
 from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from gx.constants import KNOWN_REMOTE_NAMES, LOG_ALL_REFS_ARGS
-from gx.lib.config import config
+from gx.constants import LOG_ALL_REFS_ARGS
 from gx.lib.git import git
-from gx.lib.github import is_github_remote
+from gx.lib.refs import parse_refs, read_remotes, remote_glyph, remote_of
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 _RECORD_SEP = "\x01"
 _FIELD_SEP = "\x00"
 _DEFAULT_FORMAT = "%x01%h%x00%ar%x00%s%x00%an%x00%D"
 _FULL_FORMAT = "%x01%h%x00%ar%x00%s%x00%an%x00%D%x00%b"
-_REMOTE_REF_PARTS = 2
-
-# Plain-ASCII fallback used when nerd fonts are disabled (config.nerd_font = False),
-# so terminals without a Nerd Font show a readable symbol instead of tofu. One
-# symbol covers every host since the remote name follows it in labeled badges.
-_REMOTE_FALLBACK = "@"
-
-# Host-aware Nerd Font glyphs for the remote-head badge.
-_GITHUB_GLYPH = ""
-_GITLAB_GLYPH = ""
-_GIT_GLYPH = ""
 
 
 @dataclass(frozen=True)
@@ -78,27 +69,7 @@ class _RemoteBadges:
     default_glyph: str
 
 
-def _remote_glyph(url: str) -> str:
-    """Pick a host-aware badge token for a remote URL.
-
-    Lets the remote-head badge echo where the code actually lives (GitHub,
-    GitLab, or a generic git host) instead of a one-size-fits-all icon. When
-    nerd fonts are disabled via config, every host collapses to a single ASCII
-    symbol so the badge stays readable without a Nerd Font.
-
-    Args:
-        url: The remote URL to classify.
-    """
-    if not config.nerd_font:
-        return _REMOTE_FALLBACK
-    if is_github_remote(url):
-        return _GITHUB_GLYPH
-    if "gitlab" in url:
-        return _GITLAB_GLYPH
-    return _GIT_GLYPH
-
-
-def _remote_head_ref() -> tuple[str | None, str]:
+def _remote_head_ref(remotes: Mapping[str, str]) -> tuple[str | None, str]:
     """Resolve the remote default branch ref and its host glyph.
 
     Resolved once per render so the per-commit loop stays free of git calls.
@@ -106,47 +77,24 @@ def _remote_head_ref() -> tuple[str | None, str]:
     so the two never disagree (e.g. a `fork`/`origin` setup) and the ref matches
     the remote-tracking decoration git emits in the log.
 
+    Args:
+        remotes: Map of remote name to fetch URL, in `git remote` order.
+
     Returns:
         A (ref, glyph) tuple such as ("origin/main", ""). The ref is None when
         no remote is configured or its HEAD is not resolved, in which case no
         badge is drawn rather than guessing a ref that may match nothing.
     """
-    remote = primary_remote()
-    if remote is None:
+    # `git remote -v` lists remotes in the same order as `git remote`, so the first is primary.
+    name = next(iter(remotes), None)
+    if name is None:
         return None, ""
 
-    target = remote_default_branch(remote=remote.name)
+    target = remote_default_branch(remote=name)
     if target is None:
         return None, ""
 
-    return f"{remote.name}/{target}", _remote_glyph(remote.url)
-
-
-def _remote_glyphs() -> dict[str, str]:
-    """Resolve a host-aware glyph for every configured remote.
-
-    Lets each remote/branch label echo where that remote actually lives, so an
-    `origin` (GitHub) and an `upstream` (GitLab) get distinct icons in the same
-    log. Resolved once per render only when labeled badges are needed.
-
-    Returns:
-        A map of remote name to glyph, e.g. {"origin": "", "upstream": ""}.
-        Empty when no remotes are configured.
-    """
-    result = git("remote", "-v")
-    if not result.ok or not result.stdout:
-        return {}
-
-    # `git remote -v` lines are "<name>\t<url> (fetch|push)" -- one call beats a
-    # per-remote `get-url`, and the duplicate fetch/push rows resolve identically.
-    glyphs: dict[str, str] = {}
-    for line in result.stdout.splitlines():
-        name, _, rest = line.partition("\t")
-        url = rest.split(maxsplit=1)[0] if rest else ""
-        if not name or not url:
-            continue
-        glyphs[name] = _remote_glyph(url)
-    return glyphs
+    return f"{name}/{target}", remote_glyph(remotes[name])
 
 
 def _make_table() -> Table:
@@ -176,9 +124,8 @@ def _render_refs(entry: LogEntry, badges: _RemoteBadges) -> Text:
     refs = Text()
     items: list[tuple[str, str]] = [(f" {b} ", "reverse bold magenta") for b in entry.branches]
     if badges.labeled:
-        fallback_glyph = _remote_glyph("")  # for refs whose remote is no longer configured
         for ref in entry.remote_branches:
-            glyph = badges.glyphs.get(ref.split("/", 1)[0], fallback_glyph)
+            glyph = badges.glyphs.get(remote_of(ref, badges.glyphs) or "", "")
             items.append((f" {glyph} {ref} ", "reverse bold blue"))
     elif entry.is_remote_head:
         items.append((f" {badges.default_glyph} ", "reverse bold blue"))
@@ -207,64 +154,12 @@ def _add_row(table: Table, entry: LogEntry, badges: _RemoteBadges, *, dim: bool 
     )
 
 
-def _parse_refs(
-    raw_refs: str, remote_default_ref: str | None
-) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], bool, bool]:
-    """Parse a raw ref decoration string into branches, tags, and HEAD flags.
-
-    Filters out HEAD and HEAD -> X. Remote refs are collected separately from
-    local branches; the symbolic ``<remote>/HEAD`` alias is dropped since it is
-    a pointer to the default, not a branch. A remote ref matching
-    ``remote_default_ref`` also flips the remote-head flag so a lone default can
-    be badged with an icon.
-
-    Args:
-        raw_refs: The raw %D output for a single commit.
-        remote_default_ref: The remote default branch ref (e.g. "origin/main"),
-            or None when no remote is configured.
-
-    Returns:
-        A (branches, tags, remote_branches, is_head, is_remote_head) tuple.
-    """
-    branches: list[str] = []
-    tags: list[str] = []
-    remote_branches: list[str] = []
-    is_head = False
-    is_remote_head = False
-
-    if not raw_refs.strip():
-        return (), (), (), False, False
-
-    for raw_ref in raw_refs.split(", "):
-        ref = raw_ref.strip()
-        if ref.startswith("HEAD -> "):
-            branches.append(ref.removeprefix("HEAD -> "))
-            is_head = True
-        elif ref == "HEAD":
-            is_head = True
-        elif ref.startswith("tag: "):
-            tags.append(ref.removeprefix("tag: "))
-        else:
-            parts = ref.split("/", 1)
-            is_remote = (
-                len(parts) == _REMOTE_REF_PARTS
-                and "/" not in parts[0]
-                and parts[0] in KNOWN_REMOTE_NAMES
-            )
-            if is_remote:
-                if parts[1] == "HEAD":  # symbolic alias of the default, not a branch
-                    continue
-                remote_branches.append(ref)
-                if ref == remote_default_ref:
-                    is_remote_head = True
-            else:
-                branches.append(ref)
-
-    return tuple(branches), tuple(tags), tuple(remote_branches), is_head, is_remote_head
-
-
 def _parse_entries(
-    raw: str, *, has_body: bool, remote_default_ref: str | None = None
+    raw: str,
+    *,
+    has_body: bool,
+    remote_default_ref: str | None = None,
+    remotes: frozenset[str],
 ) -> list[LogEntry]:
     """Parse raw git log output into LogEntry objects.
 
@@ -275,6 +170,7 @@ def _parse_entries(
         has_body: Whether the format includes the body field (%b).
         remote_default_ref: The remote default branch ref (e.g. "origin/main")
             used to flag which commit the remote points to.
+        remotes: Names of the configured remotes, used to classify remote refs.
 
     Returns:
         List of LogEntry objects with per-commit refs parsed.
@@ -295,10 +191,7 @@ def _parse_entries(
         if len(fields) < expected_fields:
             continue
 
-        raw_refs = fields[4].strip()
-        branches, tags, remote_branches, is_head, is_remote_head = _parse_refs(
-            raw_refs, remote_default_ref
-        )
+        refs = parse_refs(fields[4].strip(), remotes)
         body = fields[5].strip() if has_body else ""
 
         entries.append(
@@ -307,12 +200,12 @@ def _parse_entries(
                 relative_time=fields[1].strip(),
                 subject=fields[2].strip(),
                 author=fields[3].strip(),
-                branches=branches,
-                tags=tags,
-                remote_branches=remote_branches,
+                branches=(*refs.branches, *refs.others),
+                tags=refs.tags,
+                remote_branches=refs.remotes,
                 body=body,
-                is_head=is_head,
-                is_remote_head=is_remote_head,
+                is_head=refs.head is not None or refs.detached,
+                is_remote_head=remote_default_ref in refs.remotes,
             )
         )
 
@@ -358,9 +251,13 @@ class LogPanel:
         if not result.ok or not result.stdout:
             return None
 
-        remote_default_ref, default_glyph = _remote_head_ref()
+        remotes = read_remotes()
+        remote_default_ref, default_glyph = _remote_head_ref(remotes)
         entries = _parse_entries(
-            result.stdout, has_body=self.show_body, remote_default_ref=remote_default_ref
+            result.stdout,
+            has_body=self.show_body,
+            remote_default_ref=remote_default_ref,
+            remotes=frozenset(remotes),
         )
         if not entries:
             return None
@@ -369,7 +266,7 @@ class LogPanel:
         labeled = sum(len(e.remote_branches) for e in entries) > 1
         badges = _RemoteBadges(
             labeled=labeled,
-            glyphs=_remote_glyphs() if labeled else {},
+            glyphs={name: remote_glyph(url) for name, url in remotes.items()} if labeled else {},
             default_glyph=default_glyph,
         )
         return self._build_panel(entries, badges)

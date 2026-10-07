@@ -6,7 +6,7 @@ import typer
 from nclutils import pp
 from nclutils.git import ahead_behind, current_branch, is_dirty, tracking_branch
 
-from gx.lib.branch import is_remote_ref
+from gx.lib.branch import remote_for_ref, upstream_ref_name
 from gx.lib.git import check_git_repo, git, raise_on_error, set_dry_run
 from gx.lib.options import (
     DRY_RUN_OPTION,
@@ -50,15 +50,14 @@ def _resolve_target(ref: str | None) -> tuple[str, str | None]:
         typer.Exit: When no ref is given and no upstream is configured.
     """
     if ref is not None:
-        fetch_remote = ref.split("/", 1)[0] if is_remote_ref(ref) else None
-        return ref, fetch_remote
+        return ref, remote_for_ref(ref)
 
     tracking = tracking_branch()
     if tracking is None:
         pp.info("Nothing to integrate: no upstream is configured.")
         raise typer.Exit(0)
     remote, remote_branch = tracking
-    return f"{remote}/{remote_branch}", remote
+    return upstream_ref_name(remote, remote_branch), None if remote == "." else remote
 
 
 @app.callback(invoke_without_command=True)

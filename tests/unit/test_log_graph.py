@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import re
+from io import StringIO
 from typing import TYPE_CHECKING
 
 import pytest
 import typer
 from nclutils.sh import CompletedCommand
+from rich.console import Console
 from rich.text import Text
 
 from gx.lib.config import GxConfig
@@ -111,8 +113,14 @@ def _context(
     head_reachable: frozenset[str] | None = None,
     parents: Mapping[str, tuple[str, ...]] | None = None,
     everything_reachable: bool = True,
+    remotes: frozenset[str] = frozenset({"origin"}),
+    unpushed: frozenset[str] = frozenset(),
+    upstreams: Mapping[str, BranchState] | None = None,
 ) -> LogContext:
-    """Build a context with `main` as the colorless default and `feat` colored cyan."""
+    """Build a context with `main` as the colorless default and `feat` colored cyan.
+
+    `upstreams` replaces the default branch states by name, to attach upstream data.
+    """
     owners = owners or {}
     parents = parents or {}
     if head_reachable is None:
@@ -121,20 +129,22 @@ def _context(
             if everything_reachable
             else frozenset()
         )
+    branches = {
+        "main": BranchState(name="main", color="", is_current=current == "main", is_default=True),
+        "feat": BranchState(
+            name="feat", color="cyan", is_current=current == "feat", is_default=False
+        ),
+        **(upstreams or {}),
+    }
     return LogContext(
         default="main",
         current=current,
-        branches={
-            "main": BranchState(
-                name="main", color="", is_current=current == "main", is_default=True
-            ),
-            "feat": BranchState(
-                name="feat", color="cyan", is_current=current == "feat", is_default=False
-            ),
-        },
+        branches=branches,
         owners=owners,
         head_reachable=head_reachable,
         parents=parents,
+        unpushed=unpushed,
+        remotes=remotes,
     )
 
 
@@ -370,14 +380,121 @@ class TestRenderLine:
         assert text.plain.startswith("* aaaaaaa")
 
     def test_commit_line_with_refs_and_author(self) -> None:
-        """Refs sit in parentheses before the subject and the author follows the age."""
+        """Badges sit before the subject and the author follows the age."""
         # Given / When
         text = render_line(
             _tip("a", "tag: v1"), UNICODE, context=_context(), now=NOW, show_author=True
         )
 
         # Then
-        assert text.plain == "● aaaaaaa (tag: v1) commit a  0s Nate"
+        assert text.plain == "● aaaaaaa ◆ v1 commit a  0s Nate"
+
+    def test_refs_render_as_badges(self) -> None:
+        """Refs become typed badges with no raw magenta ref text."""
+        text = render_line(
+            _tip("a", "HEAD -> feat, origin/main, tag: v1"),
+            UNICODE,
+            context=_context({_sha("a"): "feat"}, current="feat"),
+            now=NOW,
+        )
+        assert "[feat] ◆ v1 origin/main commit a" in text.plain
+        assert _style_at(text, text.plain.index("[feat]")) == "reverse cyan"
+        assert _style_at(text, text.plain.index("◆ v1")) == "bold"
+        assert _style_at(text, text.plain.index("origin/main")) == "dim"
+
+    def test_badges_ascii(self) -> None:
+        """The ascii charset uses the ascii tag glyph."""
+        text = render_line(_tip("a", "tag: v1"), ASCII, context=_context(), now=NOW)
+        assert "# v1 commit a" in text.plain
+
+    def test_unpushed_marker_ascii(self) -> None:
+        """The ascii unpushed marker is `+`, never git's parent-of `^`."""
+        text = render_line(
+            _tip("a"), ASCII, context=_context(unpushed=frozenset({_sha("a")})), now=NOW
+        )
+        assert "aaaaaaa+ commit a" in text.plain
+
+    def test_detached_head_node_and_badge(self) -> None:
+        """A detached HEAD draws the HEAD node and a plain HEAD badge."""
+        text = render_line(_tip("a", "HEAD"), UNICODE, context=_context(), now=NOW)
+        assert text.plain.startswith("◉ ")
+        assert "[HEAD] commit a" in text.plain
+
+    def test_unpushed_marker_after_sha(self) -> None:
+        """An unpushed commit gets a dim marker glued to its SHA."""
+        text = render_line(
+            _tip("a"), UNICODE, context=_context(unpushed=frozenset({_sha("a")})), now=NOW
+        )
+        assert "aaaaaaa↑ commit a" in text.plain
+        assert _style_at(text, text.plain.index("↑")) == "dim"
+
+    def test_pushed_commit_has_no_marker(self) -> None:
+        """A commit outside the unpushed set has no marker."""
+        assert "↑" not in render_line(_tip("a"), UNICODE, context=_context(), now=NOW).plain
+
+    def test_metadata_dropped_before_subject_cut_with_badges(self) -> None:
+        """Badges count toward the width, so metadata drops while badges stay."""
+        line = _tip("a", "HEAD -> feat, tag: v1")
+        full = render_line(line, UNICODE, context=_context(current="feat"), now=NOW)
+        narrow = render_line(
+            line, UNICODE, context=_context(current="feat"), now=NOW, width=len(full.plain) - 1
+        )
+        assert narrow.plain.endswith("commit a")
+        assert "[feat] ◆ v1" in narrow.plain
+
+    def test_badges_without_color_snapshot(self) -> None:
+        """A small graph renders the expected badges, sync marks, unpushed marker, and legend."""
+        # Given feat checked out one commit ahead, main in sync with origin/main,
+        # a solo branch with no upstream, and a detached HEAD row
+        records = [
+            _record("a", ("b",), "HEAD -> feat"),
+            _record("b", ("c",), "main, origin/main, tag: v1"),
+            _record("c", ("d",), "solo"),
+            _record("d", ("z",), "HEAD"),
+        ]
+        context = _context(
+            current="feat",
+            unpushed=frozenset({_sha("a")}),
+            upstreams={
+                "feat": BranchState(
+                    name="feat",
+                    color="cyan",
+                    is_current=True,
+                    is_default=False,
+                    upstream="origin/feat",
+                    ahead=1,
+                    has_remote_upstream=True,
+                ),
+                "main": BranchState(
+                    name="main",
+                    color="",
+                    is_current=False,
+                    is_default=True,
+                    upstream="origin/main",
+                    has_remote_upstream=True,
+                ),
+                "solo": BranchState(
+                    name="solo", color="magenta", is_current=False, is_default=False
+                ),
+            },
+        )
+
+        # When rendered without color
+        console = Console(file=StringIO(), no_color=True, width=120, force_terminal=False)
+        for entry in _entries(records):
+            console.print(render_line(entry, UNICODE, context=context, now=NOW))
+        legend = render_legend(context, UNICODE, None)
+        assert legend is not None
+        console.print(legend)
+
+        # Then each line matches the badge rules
+        assert console.file.getvalue() == (
+            "◉ aaaaaaa↑ [feat ↑1] commit a  0s\n"
+            "● bbbbbbb (main ⇅) ◆ v1 commit b  0s\n"
+            "● ccccccc (solo) commit c  0s\n"
+            "◉ ddddddd [HEAD] commit d  0s\n"
+            "● main  ● feat (current)  ● solo local\n"
+        )
 
     @pytest.mark.parametrize("refs", ["HEAD -> main", "HEAD"])
     def test_head_commit_uses_head_node(self, refs: str) -> None:
@@ -917,12 +1034,24 @@ def test_escape_glob(ref: str, expected: str) -> None:
     assert _escape_glob(ref) == expected
 
 
-def _legend_context(names: list[str], *, current: str | None = None) -> LogContext:
-    """Build a context with `main` as default and the given branches in a fixed color."""
+def _legend_context(
+    names: list[str], *, current: str | None = None, tracked: frozenset[str] = frozenset()
+) -> LogContext:
+    """Build a context with `main` as default and the given branches in a fixed color.
+
+    Branches named in `tracked` have an upstream.
+    """
     branches = {
         "main": BranchState(name="main", color="", is_current=current == "main", is_default=True),
         **{
-            n: BranchState(name=n, color="cyan", is_current=n == current, is_default=False)
+            n: BranchState(
+                name=n,
+                color="cyan",
+                is_current=n == current,
+                is_default=False,
+                upstream=f"origin/{n}" if n in tracked else None,
+                has_remote_upstream=n in tracked,
+            )
             for n in names
         },
     }
@@ -986,6 +1115,49 @@ class TestRenderLegend:
         # Then neither has a legend
         assert render_legend(only_default, UNICODE, 80) is None
         assert render_legend(empty, UNICODE, 80) is None
+
+    def test_legend_marks_local_branches(self) -> None:
+        """Branches without an upstream are marked local when others have one."""
+        context = _legend_context(["feat", "solo"], tracked=frozenset({"feat"}))
+        legend = render_legend(context, UNICODE, None)
+        assert legend is not None
+        assert legend.plain == "● main  ● feat  ● solo local"
+
+    def test_legend_local_mark_for_branch_tracking_a_local_branch(self) -> None:
+        """An upstream that is itself a local branch does not count as a remote one."""
+        context = _legend_context(["feat", "stacked"], tracked=frozenset({"feat"}))
+        stacked = BranchState(
+            name="stacked",
+            color="cyan",
+            is_current=False,
+            is_default=False,
+            upstream="feat",
+            has_remote_upstream=False,
+        )
+        context = LogContext(
+            default=context.default,
+            current=context.current,
+            branches={**context.branches, "stacked": stacked},
+            owners={},
+            head_reachable=frozenset(),
+            parents={},
+        )
+        legend = render_legend(context, UNICODE, None)
+        assert legend is not None
+        assert legend.plain == "● main  ● feat  ● stacked local"
+
+    def test_legend_local_mark_after_current_mark(self) -> None:
+        """The local mark follows the current mark."""
+        context = _legend_context(["feat", "solo"], current="solo", tracked=frozenset({"feat"}))
+        legend = render_legend(context, UNICODE, None)
+        assert legend is not None
+        assert legend.plain == "● main  ● solo (current) local  ● feat"
+
+    def test_legend_local_mark_needs_a_tracked_branch(self) -> None:
+        """With no upstream anywhere, every branch is local and the mark says nothing."""
+        legend = render_legend(_legend_context(["feat", "solo"]), UNICODE, None)
+        assert legend is not None
+        assert "local" not in legend.plain
 
     def test_legend_truncates(self) -> None:
         """A narrow width drops entries and ends with a `+N more` tail."""

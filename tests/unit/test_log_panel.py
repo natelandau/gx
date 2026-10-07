@@ -3,20 +3,19 @@
 from __future__ import annotations
 
 from io import StringIO
+from typing import TYPE_CHECKING
 
 import pytest
 from rich.console import Console
 
 from gx.lib.config import GxConfig
-from gx.lib.log_panel import (
-    _GIT_GLYPH,
-    _GITHUB_GLYPH,
-    _GITLAB_GLYPH,
-    _REMOTE_FALLBACK,
-    LogPanel,
-    _parse_entries,
-    _remote_glyph,
-)
+from gx.lib.log_panel import LogPanel, _parse_entries
+from gx.lib.refs import GITHUB_GLYPH, GITLAB_GLYPH, REMOTE_FALLBACK
+
+if TYPE_CHECKING:
+    from unittest.mock import MagicMock
+
+REMOTES = frozenset({"origin", "upstream"})
 
 
 class TestParseLogEntries:
@@ -30,7 +29,7 @@ class TestParseLogEntries:
             "\x01cdd86d0\x003 days ago\x00add version flag\x00Nate Landau\x00"
         )
         # When
-        entries = _parse_entries(raw, has_body=False)
+        entries = _parse_entries(raw, has_body=False, remotes=REMOTES)
         # Then
         assert len(entries) == 2
         assert entries[0].sha == "9c96da2"
@@ -51,7 +50,7 @@ class TestParseLogEntries:
         # Given
         raw = "\x01abc1234\x002 hours ago\x00bump\x00Author\x00tag: v1.0, tag: v1.0.1"
         # When
-        entries = _parse_entries(raw, has_body=False)
+        entries = _parse_entries(raw, has_body=False, remotes=frozenset())
         # Then
         assert entries[0].tags == ("v1.0", "v1.0.1")
         assert entries[0].branches == ()
@@ -61,7 +60,7 @@ class TestParseLogEntries:
         # Given
         raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00feat/my-feature"
         # When
-        entries = _parse_entries(raw, has_body=False)
+        entries = _parse_entries(raw, has_body=False, remotes=frozenset())
         # Then
         assert entries[0].branches == ("feat/my-feature",)
 
@@ -70,7 +69,7 @@ class TestParseLogEntries:
         # Given
         raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00main, origin/main, upstream/main"
         # When
-        entries = _parse_entries(raw, has_body=False)
+        entries = _parse_entries(raw, has_body=False, remotes=REMOTES)
         # Then
         assert entries[0].branches == ("main",)
         assert "origin/main" not in entries[0].branches
@@ -81,7 +80,7 @@ class TestParseLogEntries:
         # Given
         raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00HEAD -> main, HEAD"
         # When
-        entries = _parse_entries(raw, has_body=False)
+        entries = _parse_entries(raw, has_body=False, remotes=frozenset())
         # Then
         assert entries[0].branches == ("main",)
         assert entries[0].is_head is True
@@ -95,7 +94,7 @@ class TestParseLogEntries:
             "\x01cdd86d0\x003 days ago\x00add flag\x00Nate\x00\x00"
         )
         # When
-        entries = _parse_entries(raw, has_body=True)
+        entries = _parse_entries(raw, has_body=True, remotes=frozenset())
         # Then
         assert len(entries) == 2
         assert entries[0].body == "Line one\nLine two"
@@ -104,7 +103,7 @@ class TestParseLogEntries:
     def test_empty_output(self):
         """Verify empty list for empty git output."""
         # When
-        entries = _parse_entries("", has_body=False)
+        entries = _parse_entries("", has_body=False, remotes=frozenset())
         # Then
         assert entries == []
 
@@ -113,7 +112,9 @@ class TestParseLogEntries:
         # Given a commit decorated with the remote default branch
         raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00main, origin/main"
         # When parsing with that ref as the remote default
-        entries = _parse_entries(raw, has_body=False, remote_default_ref="origin/main")
+        entries = _parse_entries(
+            raw, has_body=False, remote_default_ref="origin/main", remotes=REMOTES
+        )
         # Then the commit is flagged as the remote head, remote ref still hidden
         assert entries[0].is_remote_head is True
         assert entries[0].branches == ("main",)
@@ -123,7 +124,9 @@ class TestParseLogEntries:
         # Given a commit decorated only with a non-default remote ref
         raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00upstream/main"
         # When parsing with a different ref as the remote default
-        entries = _parse_entries(raw, has_body=False, remote_default_ref="origin/main")
+        entries = _parse_entries(
+            raw, has_body=False, remote_default_ref="origin/main", remotes=REMOTES
+        )
         # Then the commit is not flagged
         assert entries[0].is_remote_head is False
 
@@ -132,7 +135,7 @@ class TestParseLogEntries:
         # Given a commit decorated with several remote branches
         raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00main, origin/main, upstream/feature"
         # When parsing
-        entries = _parse_entries(raw, has_body=False)
+        entries = _parse_entries(raw, has_body=False, remotes=REMOTES)
         # Then remote refs land in remote_branches, local stays in branches
         assert entries[0].remote_branches == ("origin/main", "upstream/feature")
         assert entries[0].branches == ("main",)
@@ -142,47 +145,25 @@ class TestParseLogEntries:
         # Given a commit decorated with a remote branch and its HEAD alias
         raw = "\x01abc1234\x002 hours ago\x00fix\x00Author\x00origin/main, origin/HEAD"
         # When parsing
-        entries = _parse_entries(raw, has_body=False)
+        entries = _parse_entries(raw, has_body=False, remotes=REMOTES)
         # Then the symbolic HEAD alias is dropped
         assert entries[0].remote_branches == ("origin/main",)
 
 
-class TestRemoteGlyph:
-    """Tests for host-aware remote glyph selection."""
-
-    @pytest.mark.parametrize(
-        ("url", "expected"),
-        [
-            ("https://github.com/me/repo.git", _GITHUB_GLYPH),
-            ("git@gitlab.com:me/repo.git", _GITLAB_GLYPH),
-            ("https://bitbucket.org/me/repo.git", _GIT_GLYPH),
-        ],
-    )
-    def test_glyph_by_host(self, url, expected):
-        """Verify the glyph matches the remote host."""
-        # When / Then
-        assert _remote_glyph(url) == expected
-
-    @pytest.mark.parametrize(
-        "url",
-        [
-            "https://github.com/me/repo.git",
-            "git@gitlab.com:me/repo.git",
-            "https://bitbucket.org/me/repo.git",
-        ],
-    )
-    def test_ascii_fallback_when_nerd_font_disabled(self, mocker, url):
-        """Verify every host collapses to one ASCII symbol when nerd fonts are off."""
-        # Given nerd fonts disabled
-        mocker.patch("gx.lib.log_panel.config", GxConfig(nerd_font=False))
-        # When resolving any remote glyph
-        result = _remote_glyph(url)
-        # Then the single ASCII fallback is used, never a Private-Use-Area glyph
-        assert result == _REMOTE_FALLBACK
-
-
 class TestLogPanelRender:
     """Tests for LogPanel rendering output."""
+
+    @pytest.fixture(autouse=True)
+    def read_remotes_mock(self, mocker) -> MagicMock:
+        """Stub the remote lookup so render never reaches real git."""
+        return mocker.patch(
+            "gx.lib.log_panel.read_remotes",
+            autospec=True,
+            return_value={
+                "origin": "git@github.com:a/b.git",
+                "upstream": "https://example.com/b.git",
+            },
+        )
 
     def test_renders_sha_and_subject(self, mocker):
         """Verify panel output contains SHA and subject text."""
@@ -227,6 +208,53 @@ class TestLogPanelRender:
         output = buf.getvalue()
         assert "main" in output
 
+    def test_renders_pull_request_ref_as_branch_badge(self, mocker):
+        """Verify a refs/pull decoration still shows as a branch badge."""
+        # Given a commit decorated with a pull request ref
+        mocker.patch(
+            "gx.lib.log_panel.git",
+            autospec=True,
+            return_value=mocker.Mock(
+                success=True,
+                stdout="\x019c96da2\x003 days ago\x00bump\x00Nate\x00refs/pull/1/head",
+            ),
+        )
+        # When
+        panel = LogPanel(count=5).render()
+        # Then
+        buf = StringIO()
+        Console(file=buf, width=120).print(panel)
+        assert "refs/pull/1/head" in buf.getvalue()
+
+    def test_slash_remote_gets_its_own_glyph(self, mocker, read_remotes_mock):
+        """Verify a remote named with a slash is matched whole for the glyph lookup."""
+        # Given remotes "team" (generic host) and "team/fork" (GitLab)
+        read_remotes_mock.return_value = {
+            "team": "https://example.com/t.git",
+            "team/fork": "git@gitlab.com:a/b.git",
+        }
+        mocker.patch("gx.lib.log_panel._remote_head_ref", autospec=True, return_value=(None, ""))
+        mocker.patch(
+            "gx.lib.log_panel.git",
+            autospec=True,
+            return_value=mocker.Mock(
+                success=True,
+                stdout=(
+                    "\x019c96da2\x002 days ago\x00bump\x00Nate\x00team/fork/main, team/fork/HEAD"
+                    "\x01cdd86d0\x003 days ago\x00feat\x00Nate\x00team/dev"
+                ),
+            ),
+        )
+        # When
+        panel = LogPanel(count=5).render()
+        # Then the GitLab glyph labels team/fork/main, and team/fork/HEAD is dropped
+        buf = StringIO()
+        Console(file=buf, width=200).print(panel)
+        output = buf.getvalue()
+        assert f"{GITLAB_GLYPH} team/fork/main" in output
+        assert "team/fork/HEAD" not in output
+        assert "team/dev" in output
+
     def test_renders_tag_badge(self, mocker):
         """Verify tag names appear with icon in panel output."""
         # Given
@@ -255,7 +283,7 @@ class TestLogPanelRender:
         mocker.patch(
             "gx.lib.log_panel._remote_head_ref",
             autospec=True,
-            return_value=("origin/main", _GITHUB_GLYPH),
+            return_value=("origin/main", GITHUB_GLYPH),
         )
         mocker.patch(
             "gx.lib.log_panel.git",
@@ -273,7 +301,7 @@ class TestLogPanelRender:
         console = Console(file=buf, width=120)
         console.print(panel)
         output = buf.getvalue()
-        assert _GITHUB_GLYPH in output
+        assert GITHUB_GLYPH in output
 
     def test_single_remote_branch_shows_icon_not_label(self, mocker):
         """Verify a lone remote default branch stays icon-only with no text label."""
@@ -281,7 +309,7 @@ class TestLogPanelRender:
         mocker.patch(
             "gx.lib.log_panel._remote_head_ref",
             autospec=True,
-            return_value=("origin/main", _GITHUB_GLYPH),
+            return_value=("origin/main", GITHUB_GLYPH),
         )
         mocker.patch(
             "gx.lib.log_panel.git",
@@ -299,7 +327,7 @@ class TestLogPanelRender:
         console = Console(file=buf, width=120)
         console.print(panel)
         output = buf.getvalue()
-        assert _GITHUB_GLYPH in output
+        assert GITHUB_GLYPH in output
         assert "origin/main" not in output
 
     def test_renders_labeled_remote_badges(self, mocker):
@@ -308,12 +336,7 @@ class TestLogPanelRender:
         mocker.patch(
             "gx.lib.log_panel._remote_head_ref",
             autospec=True,
-            return_value=("origin/main", _GITHUB_GLYPH),
-        )
-        mocker.patch(
-            "gx.lib.log_panel._remote_glyphs",
-            autospec=True,
-            return_value={"origin": _GITHUB_GLYPH, "upstream": _GIT_GLYPH},
+            return_value=("origin/main", GITHUB_GLYPH),
         )
         mocker.patch(
             "gx.lib.log_panel.git",
@@ -340,11 +363,11 @@ class TestLogPanelRender:
     def test_remote_badge_uses_ascii_fallback_when_disabled(self, mocker):
         """Verify the remote badge renders an ASCII token when nerd fonts are off."""
         # Given nerd fonts disabled and a single remote default branch
-        mocker.patch("gx.lib.log_panel.config", GxConfig(nerd_font=False))
+        mocker.patch("gx.lib.refs.config", GxConfig(nerd_font=False))
         mocker.patch(
             "gx.lib.log_panel._remote_head_ref",
             autospec=True,
-            return_value=("origin/main", _REMOTE_FALLBACK),
+            return_value=("origin/main", REMOTE_FALLBACK),
         )
         mocker.patch(
             "gx.lib.log_panel.git",
@@ -362,8 +385,8 @@ class TestLogPanelRender:
         console = Console(file=buf, width=120)
         console.print(panel)
         output = buf.getvalue()
-        assert _REMOTE_FALLBACK in output
-        assert _GITHUB_GLYPH not in output
+        assert REMOTE_FALLBACK in output
+        assert GITHUB_GLYPH not in output
 
     def test_renders_body_when_enabled(self, mocker):
         """Verify commit body appears when show_body is True."""

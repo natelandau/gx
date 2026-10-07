@@ -14,7 +14,7 @@ from nclutils import pp
 from nclutils.git import ahead_behind, current_branch, is_rebase_in_progress, tracking_branch
 from rich.prompt import Prompt
 
-from gx.lib.branch import is_remote_ref
+from gx.lib.branch import is_remote_ref, upstream_ref_name
 from gx.lib.config import config
 from gx.lib.display import commit_text
 from gx.lib.git import git
@@ -211,7 +211,7 @@ def warn_if_stale_base(target_ref: str) -> None:
     tracking = tracking_branch(target_ref)
     if tracking is None:
         return
-    upstream_ref = f"{tracking[0]}/{tracking[1]}"
+    upstream_ref = upstream_ref_name(*tracking)
     _, behind = ahead_behind(target_ref, upstream_ref)
     if behind > 0:
         pp.warning(
@@ -226,9 +226,9 @@ def announce_push_hint() -> None:
     if branch is None:
         return
     tracking = tracking_branch()
-    if tracking is None:
+    if tracking is None or tracking[0] == ".":  # a local upstream is never pushed to
         return
-    upstream_ref = f"{tracking[0]}/{tracking[1]}"
+    upstream_ref = upstream_ref_name(*tracking)
     ahead, _ = ahead_behind(branch, upstream_ref)
     if ahead == 0:
         return
@@ -338,7 +338,8 @@ def fetch_and_rebase(remote: str, remote_branch: str, *, stashed: bool) -> None:
         if not result.ok:
             rollback(stashed=stashed)
 
-    with pp.step(f"Pull with rebase from {remote}/{remote_branch}"):
+    upstream_ref = upstream_ref_name(remote, remote_branch)
+    with pp.step(f"Pull with rebase from {upstream_ref}"):
         result = git("pull", "--rebase", remote, remote_branch)
         if not result.ok:
             if is_rebase_in_progress():
@@ -350,7 +351,7 @@ def fetch_and_rebase(remote: str, remote_branch: str, *, stashed: bool) -> None:
                     )
                 rollback(stashed=False)
             else:
-                pp.error(f"Failed to pull from {remote}/{remote_branch}")
+                pp.error(f"Failed to pull from {upstream_ref}")
                 rollback(stashed=stashed)
 
 
@@ -367,7 +368,7 @@ def print_pull_summary(head_before: str, remote: str, remote_branch: str) -> Non
         remote: The remote name.
         remote_branch: The remote branch name.
     """
-    upstream_ref = f"{remote}/{remote_branch}"
+    upstream_ref = upstream_ref_name(remote, remote_branch)
     remote_tip = git("rev-parse", upstream_ref)
     if head_before == remote_tip.stdout:
         pp.success("Already up to date")

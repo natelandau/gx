@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from typer.testing import CliRunner
 
 from gx.cli import app
+from gx.commands.integrate import _resolve_target
 from tests.conftest import (
     checkout_tmp_branch,
     create_tmp_branch,
@@ -175,6 +176,36 @@ class TestIntegrateIntegration:
         # Then it fast-forwards without attempting to fetch a nonexistent "feat" remote
         assert result.exit_code == 0
         assert "fetch from feat" not in result.output.lower()
+
+    def test_integrate_slash_named_remote_fetches_full_name(self, tmp_git_repo: Path) -> None:
+        """Verify a remote named team/fork is fetched whole, not as its first segment."""
+        # Given a remote named team/fork
+        subprocess.run(
+            ["git", "remote", "add", "team/fork", "/nonexistent/fork.git"],  # noqa: S607
+            cwd=tmp_git_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        # When resolving a ref under it
+        target, fetch_remote = _resolve_target("team/fork/main")
+        # Then the fetch remote is the full configured name
+        assert (target, fetch_remote) == ("team/fork/main", "team/fork")
+
+    def test_integrate_local_upstream_targets_the_local_branch(self, tmp_git_repo: Path) -> None:
+        """Verify a branch tracking a local branch integrates that branch with no fetch."""
+        # Given a branch whose upstream is the local main branch
+        subprocess.run(
+            ["git", "checkout", "-q", "-b", "feat", "--track", "main"],  # noqa: S607
+            cwd=tmp_git_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        # When resolving the default target
+        target, fetch_remote = _resolve_target(None)
+        # Then the target is the local branch, not `./main`, and nothing is fetched
+        assert (target, fetch_remote) == ("main", None)
 
     def test_integrate_fetch_failure_aborts(self, tmp_git_repo: Path) -> None:
         """Verify integrate aborts cleanly instead of silently ignoring a failed fetch."""

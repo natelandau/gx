@@ -6,6 +6,7 @@ import typer
 from nclutils import pp
 from nclutils.git import ahead_behind, is_rebase_in_progress
 
+from gx.lib.branch import upstream_ref_name
 from gx.lib.git import check_git_repo, git, set_dry_run
 from gx.lib.options import (
     DRY_RUN_OPTION,
@@ -72,7 +73,7 @@ def pull(
     ensure_one_strategy_flag(rebase=rebase, merge=merge, ff_only=ff_only)
 
     branch, remote, remote_branch = validate_branch()
-    upstream_ref = f"{remote}/{remote_branch}"
+    upstream_ref = upstream_ref_name(remote, remote_branch)
     stashed = stash_if_dirty()
     head_before = git("rev-parse", "HEAD")
 
