@@ -25,6 +25,8 @@ uv run ruff check src/   # Check code quality
 uv run ruff format src/  # Format code
 ```
 
+The lint and test duties run through `gate-cache`, so each one skips when it already passed on the same working-tree content. `uv run gate-cache status` shows which gates passed. `GATE_CACHE_DISABLE=1 uv run duty test` forces a run. `duty test` with extra pytest arguments always runs.
+
 ## Architecture
 
 ### Package Structure
