@@ -305,7 +305,7 @@ class TestPushGuardRails:
         # When
         ctx = typer.Context(TyperCommand("push"))
         with pytest.raises(typer.Exit):
-            push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
+            push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False, no_verify=False)
 
         # Then
         captured = capsys.readouterr()
@@ -324,7 +324,7 @@ class TestPushGuardRails:
         # When
         ctx = typer.Context(TyperCommand("push"))
         with pytest.raises(typer.Exit):
-            push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
+            push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False, no_verify=False)
 
         # Then
         mock_confirm.assert_called_once()
@@ -350,7 +350,7 @@ class TestPushGuardRails:
 
         # When
         ctx = typer.Context(TyperCommand("push"))
-        push(ctx=ctx, verbose=0, dry_run=False, force=True, tags=False)
+        push(ctx=ctx, verbose=0, dry_run=False, force=True, tags=False, no_verify=False)
 
         # Then
         mock_confirm.assert_not_called()
@@ -380,7 +380,7 @@ class TestPushExecution:
 
         # When
         ctx = typer.Context(TyperCommand("push"))
-        push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
+        push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False, no_verify=False)
 
         # Then
         push_call = mock_push_git.call_args_list[1]
@@ -409,7 +409,7 @@ class TestPushExecution:
 
         # When
         ctx = typer.Context(TyperCommand("push"))
-        push(ctx=ctx, verbose=0, dry_run=False, force=True, tags=False)
+        push(ctx=ctx, verbose=0, dry_run=False, force=True, tags=False, no_verify=False)
 
         # Then
         push_call = mock_push_git.call_args_list[1]
@@ -435,11 +435,38 @@ class TestPushExecution:
 
         # When
         ctx = typer.Context(TyperCommand("push"))
-        push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=True)
+        push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=True, no_verify=False)
 
         # Then
         push_call = mock_push_git.call_args_list[1]
         assert "--tags" in push_call.args
+        assert "--no-verify" not in push_call.args
+
+    def test_push_with_no_verify(
+        self,
+        mocker,
+        mock_push_check_git_repo,
+        mock_push_current_branch,
+        mock_push_default_branch,
+        mock_push_tracking_branch,
+        mock_push_git,
+    ):
+        """Verify --no-verify is passed through to git push."""
+        # Given
+        mocker.patch("gx.commands.push._count_dirty_files", autospec=True, return_value=(0, 0))
+        mock_push_git.side_effect = [
+            _ok(stdout="abc123"),  # rev-parse remote ref
+            _ok(),  # push
+            _ok(stdout=""),  # log (summary)
+        ]
+
+        # When
+        ctx = typer.Context(TyperCommand("push"))
+        push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False, no_verify=True)
+
+        # Then
+        push_call = mock_push_git.call_args_list[1]
+        assert "--no-verify" in push_call.args
 
     def test_push_failure_exits(
         self,
@@ -462,7 +489,7 @@ class TestPushExecution:
         # When
         ctx = typer.Context(TyperCommand("push"))
         with pytest.raises(typer.Exit):
-            push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
+            push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False, no_verify=False)
 
         # Then
         captured = capsys.readouterr()
@@ -491,7 +518,7 @@ class TestPushExecution:
         # When
         ctx = typer.Context(TyperCommand("push"))
         with pytest.raises(typer.Exit) as exc_info:
-            push(ctx=ctx, verbose=0, dry_run=False, force=True, tags=False)
+            push(ctx=ctx, verbose=0, dry_run=False, force=True, tags=False, no_verify=False)
 
         # Then
         assert exc_info.value.exit_code == 1
@@ -520,7 +547,7 @@ class TestPushExecution:
 
         # When
         ctx = typer.Context(TyperCommand("push"))
-        push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
+        push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False, no_verify=False)
 
         # Then
         assert mock_push_git.call_args_list[1].kwargs["timeout"] is None
@@ -545,7 +572,7 @@ class TestPushExecution:
 
         # When
         ctx = typer.Context(TyperCommand("push"))
-        push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
+        push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False, no_verify=False)
 
         # Then
         push_call = mock_push_git.call_args_list[1]
@@ -575,7 +602,7 @@ class TestPushExecution:
 
         # When
         ctx = typer.Context(TyperCommand("push"))
-        push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False)
+        push(ctx=ctx, verbose=0, dry_run=False, force=False, tags=False, no_verify=False)
 
         # Then
         captured = capsys.readouterr()
@@ -608,7 +635,7 @@ class TestPushDryRun:
 
         # When
         ctx = typer.Context(TyperCommand("push"))
-        push(ctx=ctx, verbose=0, dry_run=True, force=False, tags=False)
+        push(ctx=ctx, verbose=0, dry_run=True, force=False, tags=False, no_verify=False)
 
         # Then
         captured = capsys.readouterr()

@@ -211,6 +211,12 @@ TAGS_OPTION: bool = typer.Option(
     help="Include all local tags in the push.",
 )
 
+NO_VERIFY_OPTION: bool = typer.Option(
+    False,  # noqa: FBT003
+    "--no-verify",
+    help="Skip the pre-push hook.",
+)
+
 
 @app.callback(invoke_without_command=True)
 def push(
@@ -219,6 +225,7 @@ def push(
     dry_run: bool = DRY_RUN_OPTION,  # noqa: FBT001
     force: bool = FORCE_OPTION,  # noqa: FBT001
     tags: bool = TAGS_OPTION,  # noqa: FBT001
+    no_verify: bool = NO_VERIFY_OPTION,  # noqa: FBT001
 ) -> None:
     """Push commits to the remote tracking branch.
 
@@ -235,6 +242,7 @@ def push(
       gx push              Push current branch
       gx push -f           Force push with lease
       gx push -t           Push commits and all tags
+      gx push --no-verify  Push without running the pre-push hook
       gx push -n           Preview what would be pushed
     """
     if verbose:
@@ -269,6 +277,8 @@ def push(
         push_args.append("--force-with-lease")
     if tags:
         push_args.append("--tags")
+    if no_verify:
+        push_args.append("--no-verify")
 
     # No timeout: pre-push hooks and large uploads have no predictable duration
     with pp.step(f"Push to {remote}/{remote_branch}") as s:

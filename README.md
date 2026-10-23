@@ -103,6 +103,7 @@ Push the current branch to its remote tracking branch, or to `origin/<branch>` o
 gx push                  # push current branch
 gx push -f               # force push with --force-with-lease
 gx push -t               # push commits and all tags
+gx push --no-verify      # push without running the pre-push hook
 ```
 
 Safety guards:
