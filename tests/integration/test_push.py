@@ -3,6 +3,7 @@
 from typer.testing import CliRunner
 
 from gx.cli import app
+from gx.lib.git import git
 from tests.conftest import (
     create_tmp_branch,
     create_tmp_commit,
@@ -49,3 +50,22 @@ class TestPushIntegration:
         result = runner.invoke(app, ["push"])
         assert result.exit_code == 0
         mock_confirm.assert_called_once()
+
+    def test_push_no_verify_skips_pre_push_hook(self, tmp_git_repo):
+        """Verify --no-verify pushes past a pre-push hook that would reject the push."""
+        hooks = tmp_git_repo / ".hooks"
+        hooks.mkdir()
+        hook = hooks / "pre-push"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        # A local hooksPath overrides any global one on the developer's machine
+        git("config", "core.hooksPath", str(hooks))
+        create_tmp_branch(tmp_git_repo, "feat/test")
+        create_tmp_commit(tmp_git_repo, "new feature")
+
+        blocked = runner.invoke(app, ["push"])
+        assert blocked.exit_code == 1
+
+        result = runner.invoke(app, ["push", "--no-verify"])
+        assert result.exit_code == 0
+        assert "1 commit(s)" in result.output
